@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
     Search,
     Grid,
@@ -39,9 +39,23 @@ export default function Header({
     user,
     onLogout,
     onMobileMenuToggle,
+    showFileControls = true,
 }) {
     const [showUserMenu, setShowUserMenu] = useState(false);
     const [showMobileSearch, setShowMobileSearch] = useState(false);
+    const userMenuRef = useRef(null);
+
+    // Close dropdown when clicking outside
+    useEffect(() => {
+        if (!showUserMenu) return;
+        const handleClickOutside = (e) => {
+            if (userMenuRef.current && !userMenuRef.current.contains(e.target)) {
+                setShowUserMenu(false);
+            }
+        };
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => document.removeEventListener("mousedown", handleClickOutside);
+    }, [showUserMenu]);
 
     return (
         <header className="header">
@@ -56,7 +70,7 @@ export default function Header({
                 </button>
 
                 <h1>{viewTitle || "My Drive"}</h1>
-                {currentPath.length > 0 || !viewTitle ? (
+                {showFileControls && (currentPath.length > 0 || !viewTitle) ? (
                     <nav className="breadcrumb">
                         <span
                             className="breadcrumb-item clickable"
@@ -78,102 +92,114 @@ export default function Header({
                     </nav>
                 ) : null}
 
-                {/* Desktop search - hidden on mobile */}
-                <div className={`search-box ${showMobileSearch ? 'mobile-visible' : ''}`}>
-                    <Search size={18} />
-                    <input
-                        type="text"
-                        placeholder="Search files..."
-                        value={searchQuery}
-                        onChange={(e) => onSearchChange(e.target.value)}
-                        autoFocus={showMobileSearch}
-                    />
-                    {showMobileSearch && (
-                        <button
-                            className="search-close-btn"
-                            onClick={() => {
-                                setShowMobileSearch(false);
-                                onSearchChange('');
-                            }}
-                        >
-                            <X size={18} />
-                        </button>
-                    )}
-                </div>
+                {/* Desktop search - only on file views */}
+                {showFileControls && (
+                    <div className={`search-box ${showMobileSearch ? 'mobile-visible' : ''}`}>
+                        <Search size={18} />
+                        <input
+                            type="text"
+                            placeholder="Search files..."
+                            value={searchQuery}
+                            onChange={(e) => onSearchChange(e.target.value)}
+                            autoFocus={showMobileSearch}
+                        />
+                        {showMobileSearch && (
+                            <button
+                                className="search-close-btn"
+                                onClick={() => {
+                                    setShowMobileSearch(false);
+                                    onSearchChange('');
+                                }}
+                            >
+                                <X size={18} />
+                            </button>
+                        )}
+                    </div>
+                )}
 
-                {/* Mobile search toggle button */}
-                <button
-                    className="search-toggle-btn"
-                    onClick={() => setShowMobileSearch(true)}
-                    aria-label="Search"
-                >
-                    <Search size={18} />
-                </button>
+                {/* Mobile search toggle - only on file views */}
+                {showFileControls && (
+                    <button
+                        className="search-toggle-btn"
+                        onClick={() => setShowMobileSearch(true)}
+                        aria-label="Search"
+                    >
+                        <Search size={18} />
+                    </button>
+                )}
             </div>
 
             <div className="header-right">
                 {/* Multi-select indicator */}
-                {isMultiSelect && selectedCount > 0 && (
+                {showFileControls && isMultiSelect && selectedCount > 0 && (
                     <span className="selected-count">{selectedCount} selected</span>
                 )}
 
-                {/* Sort dropdown */}
-                <div className="sort-dropdown">
-                    <select
-                        value={sortBy}
-                        onChange={(e) => onSortChange(e.target.value)}
-                        className="sort-select"
-                    >
-                        {sortOptions.map((opt) => (
-                            <option key={opt.value} value={opt.value}>
-                                {opt.label}
-                            </option>
-                        ))}
-                    </select>
-                    <ChevronDown size={14} className="sort-icon" />
-                </div>
+                {/* Sort dropdown - only on file views */}
+                {showFileControls && (
+                    <div className="sort-dropdown">
+                        <select
+                            value={sortBy}
+                            onChange={(e) => onSortChange(e.target.value)}
+                            className="sort-select"
+                        >
+                            {sortOptions.map((opt) => (
+                                <option key={opt.value} value={opt.value}>
+                                    {opt.label}
+                                </option>
+                            ))}
+                        </select>
+                        <ChevronDown size={14} className="sort-icon" />
+                    </div>
+                )}
 
-                {/* Multi-select toggle */}
-                <button
-                    className={`header-btn ${isMultiSelect ? "active" : ""}`}
-                    onClick={onToggleMultiSelect}
-                    title="Multi-select"
-                >
-                    <CheckSquare size={18} />
-                </button>
-
-                {/* View toggle */}
-                <div className="view-toggle">
+                {/* Multi-select toggle - only on file views */}
+                {showFileControls && (
                     <button
-                        className={`view-btn ${view === "grid" ? "active" : ""}`}
-                        onClick={() => onViewChange("grid")}
-                        aria-label="Grid view"
+                        className={`header-btn ${isMultiSelect ? "active" : ""}`}
+                        onClick={onToggleMultiSelect}
+                        title="Multi-select"
                     >
-                        <Grid size={18} />
+                        <CheckSquare size={18} />
                     </button>
-                    <button
-                        className={`view-btn ${view === "list" ? "active" : ""}`}
-                        onClick={() => onViewChange("list")}
-                        aria-label="List view"
-                    >
-                        <List size={18} />
-                    </button>
-                </div>
+                )}
 
-                {/* Upload button */}
-                <label className="upload-btn">
-                    <Upload size={18} />
-                    <span>Upload</span>
-                    <input
-                        type="file"
-                        multiple
-                        hidden
-                        onChange={(e) => onUpload(e.target.files)}
-                    />
-                </label>
+                {/* View toggle - only on file views */}
+                {showFileControls && (
+                    <div className="view-toggle">
+                        <button
+                            className={`view-btn ${view === "grid" ? "active" : ""}`}
+                            onClick={() => onViewChange("grid")}
+                            aria-label="Grid view"
+                        >
+                            <Grid size={18} />
+                        </button>
+                        <button
+                            className={`view-btn ${view === "list" ? "active" : ""}`}
+                            onClick={() => onViewChange("list")}
+                            aria-label="List view"
+                        >
+                            <List size={18} />
+                        </button>
+                    </div>
+                )}
+
+                {/* Upload button - only on file views */}
+                {showFileControls && (
+                    <label className="upload-btn">
+                        <Upload size={18} />
+                        <span>Upload</span>
+                        <input
+                            type="file"
+                            multiple
+                            hidden
+                            onChange={(e) => onUpload(e.target.files)}
+                        />
+                    </label>
+                )}
 
                 {/* Profile avatar with menu */}
-                <div className="user-menu">
+                <div className="user-menu" ref={userMenuRef}>
                     <div
                         className="profile-avatar"
                         title={user?.username || "Profile"}

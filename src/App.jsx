@@ -572,29 +572,28 @@ export default function App() {
                 onDragLeave={handleDragLeave}
                 onDrop={handleDrop}
             >
-                {currentView !== "activity" && currentView !== "trash" && currentView !== "admin" && (
-                    <Header
-                        currentPath={currentPath}
-                        searchQuery={searchQuery}
-                        onSearchChange={setSearchQuery}
-                        view={view}
-                        onViewChange={setView}
-                        onUpload={handleUpload}
-                        onNavigateToPath={handleNavigateToPath}
-                        sortBy={sortBy}
-                        onSortChange={setSortBy}
-                        isMultiSelect={isMultiSelect}
-                        onToggleMultiSelect={() => {
-                            setIsMultiSelect(!isMultiSelect);
-                            if (isMultiSelect) setSelectedIds(new Set());
-                        }}
-                        selectedCount={selectedIds.size}
-                        viewTitle={viewTitles[currentView]}
-                        user={user}
-                        onLogout={handleLogout}
-                        onMobileMenuToggle={() => setIsMobileMenuOpen(true)}
-                    />
-                )}
+                <Header
+                    currentPath={currentPath}
+                    searchQuery={searchQuery}
+                    onSearchChange={setSearchQuery}
+                    view={view}
+                    onViewChange={setView}
+                    onUpload={handleUpload}
+                    onNavigateToPath={handleNavigateToPath}
+                    sortBy={sortBy}
+                    onSortChange={setSortBy}
+                    isMultiSelect={isMultiSelect}
+                    onToggleMultiSelect={() => {
+                        setIsMultiSelect(!isMultiSelect);
+                        if (isMultiSelect) setSelectedIds(new Set());
+                    }}
+                    selectedCount={selectedIds.size}
+                    viewTitle={viewTitles[currentView]}
+                    user={user}
+                    onLogout={handleLogout}
+                    onMobileMenuToggle={() => setIsMobileMenuOpen(true)}
+                    showFileControls={currentView !== "activity" && currentView !== "trash" && currentView !== "admin"}
+                />
 
                 <div className="file-area">
                     {isDragging && <DropZone />}
