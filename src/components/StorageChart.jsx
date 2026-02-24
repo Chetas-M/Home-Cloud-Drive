@@ -35,9 +35,10 @@ export default function StorageChart({ files, storageInfo }) {
 
     const total = Object.values(breakdown).reduce((a, b) => a + b, 0);
 
-    // Use actual HDD storage from storageInfo (quota), treat 0 as unlimited
+    // Use user quota from storageInfo (backend already calculates effective quota)
     const maxStorage = storageInfo?.quota || 0;
-    const usedPercent = maxStorage > 0 ? ((total / maxStorage) * 100).toFixed(1) : "0.0";
+    const usedStorage = storageInfo?.used || total;
+    const usedPercent = maxStorage > 0 ? ((usedStorage / maxStorage) * 100).toFixed(1) : "0.0";
 
     const formatSize = (bytes) => {
         if (bytes === 0) return "0 B";
@@ -89,16 +90,16 @@ export default function StorageChart({ files, storageInfo }) {
         return `M ${x1} ${y1} A ${radius} ${radius} 0 ${largeArc} 1 ${x2} ${y2} L ${x3} ${y3} A ${innerRadius} ${innerRadius} 0 ${largeArc} 0 ${x4} ${y4} Z`;
     };
 
-    // Get storage display text - show actual disk capacity
+    // Determine if user has a custom quota (different from raw disk)
+    const diskTotal = storageInfo?.disk_total || 0;
+    const hasCustomQuota = maxStorage > 0 && maxStorage !== diskTotal;
+
+    // Get storage display text — show quota, not disk size
     const getStorageText = () => {
-        const diskTotal = storageInfo?.disk_total || 0;
-        if (diskTotal > 0) {
-            return `${formatSize(total)} of ${formatSize(diskTotal)}`;
-        }
         if (maxStorage > 0) {
-            return `${formatSize(total)} of ${formatSize(maxStorage)}`;
+            return `${formatSize(usedStorage)} of ${formatSize(maxStorage)}`;
         }
-        return `${formatSize(total)} used`;
+        return `${formatSize(usedStorage)} used`;
     };
 
     return (
@@ -157,6 +158,13 @@ export default function StorageChart({ files, storageInfo }) {
             <div className="storage-total">
                 {getStorageText()}
             </div>
+
+            {/* Show explicit quota label when user has a custom quota */}
+            {hasCustomQuota && (
+                <div className="storage-quota-label">
+                    Quota: {formatSize(maxStorage)}
+                </div>
+            )}
         </div>
     );
 }
