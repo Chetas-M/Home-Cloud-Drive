@@ -22,7 +22,7 @@ services:
       - STORAGE_PATH=/app/storage
       - MAX_STORAGE_BYTES=${MAX_STORAGE_BYTES:-107374182400}
       - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES:-1440}
-      - CORS_ORIGINS_STR=${CORS_ORIGINS:-http://localhost:3001}
+      - CORS_ORIGINS_STR=${CORS_ORIGINS:-https://cloud.chetas.me,http://localhost:3001}
 
     # Security: Run as non-root user
     user: "1000:1000"
@@ -58,8 +58,9 @@ services:
     container_name: homecloud-ui
     restart: unless-stopped
 
-    ports:
-      - "3001:80"
+    # Only exposed internally to Caddy, not to host
+    expose:
+      - "80"
 
     depends_on:
       backend:
@@ -83,6 +84,30 @@ services:
     networks:
       - homecloud_internal
 
+  # ===========================================
+  # Caddy - Reverse Proxy with Auto-HTTPS
+  # ===========================================
+  caddy:
+    image: caddy:2-alpine
+    container_name: homecloud-caddy
+    restart: unless-stopped
+
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp" # HTTP/3
+
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+    depends_on:
+      - frontend
+
+    networks:
+      - homecloud_internal
+
 # ===========================================
 # Named volumes for data persistence
 # ===========================================
@@ -101,9 +126,12 @@ volumes:
       o: bind
       device: ${DATA_PATH:-/mnt/homecloud/data}
 
-# ===========================================
-# Internal network (not exposed)
-# ===========================================
+  caddy_data:
+  caddy_config:
+
+    # ===========================================
+    # Internal network (not exposed)
+    # ===========================================
 networks:
   homecloud_internal:
     driver: bridge
