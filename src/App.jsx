@@ -351,9 +351,18 @@ export default function App() {
     };
 
     /* ---------------- COPY ---------------- */
-    const handleCopy = (file) => {
-        // TODO: implement backend copy endpoint
-        alert("Copy feature coming soon!");
+    const handleCopy = async (file) => {
+        if (file.type === "folder") {
+            alert("Folder copy is not supported yet.");
+            return;
+        }
+        try {
+            await api.copyFile(file.id);
+            await loadFiles();
+            await loadExtra();
+        } catch (err) {
+            alert(err.message || "Failed to copy file");
+        }
     };
 
     /* ---------------- SELECTION ---------------- */

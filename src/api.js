@@ -249,6 +249,12 @@ class ApiService {
         });
     }
 
+    async copyFile(fileId) {
+        return this.request(`/files/${fileId}/copy`, {
+            method: 'POST',
+        });
+    }
+
     // ============ FOLDERS ============
     async createFolder(name, path = []) {
         return this.request('/folders', {

@@ -264,6 +264,111 @@ async def download_file(
     )
 
 
+@router.post("/{file_id}/copy", response_model=FileResponseSchema, status_code=status.HTTP_201_CREATED)
+async def copy_file(
+    file_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Copy a file (creates a duplicate with '(copy)' suffix)"""
+    import shutil
+
+    result = await db.execute(
+        select(FileModel).where(
+            and_(FileModel.id == file_id, FileModel.owner_id == current_user.id)
+        )
+    )
+    original = result.scalar_one_or_none()
+
+    if not original:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    if original.type == "folder":
+        raise HTTPException(status_code=400, detail="Folder copy is not supported")
+
+    if not original.storage_path or not os.path.exists(original.storage_path):
+        raise HTTPException(status_code=404, detail="File not found on disk")
+
+    # Check storage quota
+    if current_user.storage_quota > 0 and current_user.storage_used + original.size > current_user.storage_quota:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Storage quota exceeded. Available: {current_user.storage_quota - current_user.storage_used} bytes"
+        )
+
+    # Generate new file ID and storage path
+    new_id = str(uuid.uuid4())
+    user_storage_path = os.path.join(settings.storage_path, current_user.id)
+    ext = original.name.split('.')[-1] if '.' in original.name else ''
+    storage_filename = f"{new_id}.{ext}" if ext else new_id
+    new_storage_path = os.path.join(user_storage_path, storage_filename)
+
+    # Copy file on disk
+    try:
+        shutil.copy2(original.storage_path, new_storage_path)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to copy file: {e}")
+
+    # Generate copy name: "file.txt" -> "file (copy).txt"
+    base_name = original.name
+    if '.' in base_name:
+        name_part, ext_part = base_name.rsplit('.', 1)
+        copy_name = f"{name_part} (copy).{ext_part}"
+    else:
+        copy_name = f"{base_name} (copy)"
+
+    # Generate thumbnail for the copy
+    thumb_path = None
+    if can_generate_thumbnail(copy_name):
+        thumb_dir = os.path.join(user_storage_path, "thumbnails")
+        thumb_path = generate_thumbnail(new_storage_path, thumb_dir, new_id)
+
+    # Create database entry
+    now = datetime.now(timezone.utc)
+    new_file = FileModel(
+        id=new_id,
+        name=copy_name,
+        type=original.type,
+        mime_type=original.mime_type,
+        size=original.size,
+        path=original.path,
+        storage_path=new_storage_path,
+        thumbnail_path=thumb_path,
+        owner_id=current_user.id,
+        is_starred=False,
+        is_trashed=False,
+        created_at=now,
+        updated_at=now,
+    )
+
+    db.add(new_file)
+    current_user.storage_used += original.size
+
+    # Log activity
+    activity = ActivityLog(
+        user_id=current_user.id,
+        action="copy",
+        file_name=copy_name,
+    )
+    db.add(activity)
+    await db.flush()
+
+    thumb_url = f"/api/files/{new_file.id}/thumbnail" if new_file.thumbnail_path else None
+    return FileResponseSchema(
+        id=new_file.id,
+        name=new_file.name,
+        type=new_file.type,
+        mime_type=new_file.mime_type,
+        size=new_file.size,
+        path=parse_path(new_file.path),
+        is_starred=new_file.is_starred,
+        is_trashed=new_file.is_trashed,
+        thumbnail_url=thumb_url,
+        created_at=new_file.created_at,
+        updated_at=new_file.updated_at,
+    )
+
+
 @router.patch("/{file_id}", response_model=FileResponseSchema)
 async def update_file(
     file_id: str,
