@@ -1,9 +1,0 @@
-cloud.chetas.me {
-    # Reverse proxy to frontend (Nginx serving React)
-    reverse_proxy homecloud-ui:80
-
-    # Increase upload size limit to 1 GB
-    request_body {
-        max_size 1GB
-    }
-}
