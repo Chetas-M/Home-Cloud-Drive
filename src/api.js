@@ -53,6 +53,10 @@ class ApiService {
             throw new Error('Unauthorized');
         }
 
+        if (response.status === 429) {
+            throw new Error('Too many attempts. Please try again later.');
+        }
+
         if (!response.ok) {
             const error = await response.json().catch(() => ({ detail: 'Request failed' }));
             throw new Error(error.detail || 'Request failed');
@@ -88,6 +92,10 @@ class ApiService {
             },
             body: formData,
         });
+
+        if (response.status === 429) {
+            throw new Error('Too many login attempts. Please wait a minute and try again.');
+        }
 
         if (!response.ok) {
             const error = await response.json().catch(() => ({ detail: 'Login failed' }));
