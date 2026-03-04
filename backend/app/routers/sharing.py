@@ -8,7 +8,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Header
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, update
 from pydantic import BaseModel
 
 from app.database import get_db
@@ -214,8 +214,12 @@ async def download_shared_file(
     if not file.storage_path or not os.path.exists(file.storage_path):
         raise HTTPException(status_code=404, detail="File not found on disk")
 
-    # Increment download count
-    link.download_count += 1
+    # Increment download count atomically (SQL-level to prevent race conditions)
+    await db.execute(
+        update(ShareLink)
+        .where(ShareLink.id == link.id)
+        .values(download_count=ShareLink.download_count + 1)
+    )
     await db.flush()
 
     return FileResponse(
