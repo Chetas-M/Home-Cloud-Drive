@@ -54,7 +54,7 @@ def parse_path(path_json: str) -> List[str]:
     """Parse stored path JSON to list"""
     try:
         return json.loads(path_json)
-    except:
+    except Exception:
         return []
 
 

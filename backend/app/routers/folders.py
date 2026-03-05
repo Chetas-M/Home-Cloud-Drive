@@ -19,7 +19,7 @@ router = APIRouter(prefix="/api/folders", tags=["Folders"])
 def parse_path(path_json: str) -> List[str]:
     try:
         return json.loads(path_json)
-    except:
+    except Exception:
         return []
 
 

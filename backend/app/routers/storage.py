@@ -50,7 +50,7 @@ async def get_storage_info(
         disk_usage = shutil.disk_usage(storage_path)
         disk_total = disk_usage.total
         disk_free = disk_usage.free
-    except:
+    except Exception:
         disk_total = 0
         disk_free = 0
     
