@@ -323,6 +323,7 @@ export default function App() {
     };
 
     const handleDeletePermanently = async (id) => {
+        if (!confirm("Delete forever? This cannot be undone.")) return;
         try {
             await api.deleteFilePermanently(id);
             setTrashedFiles((t) => t.filter((item) => item.id !== id));
@@ -332,6 +333,7 @@ export default function App() {
     };
 
     const handleEmptyTrash = async () => {
+        if (!confirm("Permanently delete all items in trash? This cannot be undone.")) return;
         try {
             await api.emptyTrash();
             setTrashedFiles([]);
