@@ -617,6 +617,67 @@ async def delete_file_permanently(
     await db.flush()
 
 
+PREVIEWABLE_TYPES = {"image", "video", "pdf", "text"}
+
+
+@router.get("/{file_id}/preview", response_model=None)
+async def preview_file(
+    file_id: str,
+    token: str = Query(None, description="Auth token for iframe/img src usage"),
+    db: AsyncSession = Depends(get_db)
+):
+    """Serve file content inline for preview. Accepts token via query param for iframe/img src."""
+    from app.config import get_settings
+    from jose import jwt, JWTError
+
+    _settings = get_settings()
+    current_user = None
+
+    # Authenticate via query token (same pattern as thumbnails)
+    if token:
+        try:
+            payload = jwt.decode(token, _settings.secret_key, algorithms=[_settings.algorithm])
+            user_id = payload.get("sub")
+            if user_id:
+                result = await db.execute(select(User).where(User.id == user_id))
+                current_user = result.scalar_one_or_none()
+        except JWTError:
+            pass
+
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    result = await db.execute(
+        select(FileModel).where(
+            and_(FileModel.id == file_id, FileModel.owner_id == current_user.id)
+        )
+    )
+    file = result.scalar_one_or_none()
+
+    if not file:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    if file.type not in PREVIEWABLE_TYPES:
+        raise HTTPException(status_code=400, detail="This file type cannot be previewed")
+
+    if not file.storage_path or not os.path.exists(file.storage_path):
+        raise HTTPException(status_code=404, detail="File not found on disk")
+
+    # Path traversal protection
+    resolved = os.path.realpath(file.storage_path)
+    if not resolved.startswith(os.path.realpath(settings.storage_path)):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    return FileResponse(
+        path=file.storage_path,
+        media_type=file.mime_type or "application/octet-stream",
+        headers={
+            "Content-Disposition": f'inline; filename="{file.name}"',
+            "Cache-Control": "private, max-age=3600",
+        }
+    )
+
+
 @router.get("/{file_id}/thumbnail", response_model=None)
 async def get_thumbnail(
     file_id: str,
