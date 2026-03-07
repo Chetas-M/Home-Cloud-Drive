@@ -42,6 +42,7 @@ export default function FilePreviewModal({
     }, [onClose, onNavigate]);
 
     const renderContent = () => {
+        // Text files: fetch content and display in <pre>
         if (file.type === "text") {
             if (textLoading) {
                 return (
@@ -55,37 +56,18 @@ export default function FilePreviewModal({
                     <pre className="preview-text-content">{textContent}</pre>
                 );
             }
-            if (file.blob) {
-                // If we already have the blob (e.g. after download)
-                const reader = new FileReader();
-                reader.onload = () => setTextContent(reader.result);
-                reader.readAsText(file.blob);
-                return (
-                    <div className="preview-placeholder">
-                        <p>Loading file content...</p>
-                    </div>
-                );
-            }
         }
 
-        if (!file.blob && !file.previewUrl) {
-            return (
-                <div className="preview-placeholder">
-                    <p>Preview not available</p>
-                    <p className="text-muted">Download the file to view it</p>
-                </div>
-            );
-        }
-
-        const url = file.previewUrl || URL.createObjectURL(file.blob);
+        // Image, video, PDF: use authenticated preview URL from backend
+        const previewUrl = api.getFilePreviewUrl(file.id);
 
         if (file.type === "image") {
-            return <img src={url} alt={file.name} className="preview-image" />;
+            return <img src={previewUrl} alt={file.name} className="preview-image" />;
         }
 
         if (file.type === "video") {
             return (
-                <video src={url} controls autoPlay className="preview-video">
+                <video src={previewUrl} controls autoPlay className="preview-video">
                     Your browser does not support video playback.
                 </video>
             );
@@ -94,7 +76,7 @@ export default function FilePreviewModal({
         if (file.type === "pdf") {
             return (
                 <iframe
-                    src={url}
+                    src={previewUrl}
                     title={file.name}
                     className="preview-pdf"
                 />
@@ -104,6 +86,7 @@ export default function FilePreviewModal({
         return (
             <div className="preview-placeholder">
                 <p>Cannot preview this file type</p>
+                <p className="text-muted">Click Download to view it</p>
             </div>
         );
     };

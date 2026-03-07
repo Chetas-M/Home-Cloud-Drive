@@ -378,6 +378,11 @@ class ApiService {
         const token = this.getToken();
         return `${API_BASE_URL}/files/${fileId}/thumbnail?token=${encodeURIComponent(token)}`;
     }
+
+    getFilePreviewUrl(fileId) {
+        const token = this.getToken();
+        return `${API_BASE_URL}/files/${fileId}/preview?token=${encodeURIComponent(token)}`;
+    }
 }
 
 export const api = new ApiService();
