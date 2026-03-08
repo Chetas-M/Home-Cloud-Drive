@@ -2890,13 +2890,13 @@ body {
   .sky-login {
     background: linear-gradient(160deg, #0f0c29 0%, #302b63 50%, #24243e 100%);
     justify-content: flex-start;
-    padding: 80px 28px 40px;
+    padding: 60px 28px 40px;
     font-family: 'Outfit', sans-serif;
   }
 
   .sky-login__header {
-    margin-bottom: 32px;
-    animation: sky-float 10s ease-in-out infinite;
+    margin-bottom: 16px;
+    animation: none;
   }
 
   .sky-login__title {
