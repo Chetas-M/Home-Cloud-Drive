@@ -2131,6 +2131,26 @@ body {
    ============================================== */
 
 /* --- Keyframes --- */
+@keyframes sky-sway {
+
+  0%,
+  100% {
+    transform: translateX(0) translateY(0) rotate(0deg);
+  }
+
+  25% {
+    transform: translateX(10px) translateY(-4px) rotate(0.3deg);
+  }
+
+  50% {
+    transform: translateX(-8px) translateY(-8px) rotate(-0.3deg);
+  }
+
+  75% {
+    transform: translateX(6px) translateY(-3px) rotate(0.2deg);
+  }
+}
+
 @keyframes sky-drift {
   0% {
     transform: translateX(-20px);
@@ -2334,11 +2354,30 @@ body {
   max-width: 900px;
 }
 
-/* --- Individual field (cloud + string + input) --- */
+/* --- Individual field (cloud + string + input move as one) --- */
 .sky-login__field {
   display: flex;
   flex-direction: column;
   align-items: center;
+}
+
+.sky-login__field:nth-child(1) {
+  animation: sky-sway 6s ease-in-out infinite;
+}
+
+.sky-login__field:nth-child(2) {
+  animation: sky-sway 8s ease-in-out infinite;
+  animation-delay: 0.5s;
+}
+
+.sky-login__field:nth-child(3) {
+  animation: sky-sway 7s ease-in-out infinite;
+  animation-delay: 1s;
+}
+
+.sky-login__field:nth-child(4) {
+  animation: sky-sway 5s ease-in-out infinite;
+  animation-delay: 1.5s;
 }
 
 /* --- Cloud shapes --- */
@@ -2352,21 +2391,16 @@ body {
 .sky-login__cloud--1 {
   width: 192px;
   height: 80px;
-  animation: sky-drift 6s ease-in-out infinite, sky-wobble 8s ease-in-out infinite;
 }
 
 .sky-login__cloud--2 {
   width: 224px;
   height: 96px;
-  animation: sky-drift 8s ease-in-out infinite, sky-wobble 10s ease-in-out infinite;
-  animation-delay: 0.5s;
 }
 
 .sky-login__cloud--3 {
   width: 160px;
   height: 64px;
-  animation: sky-drift 5s ease-in-out infinite, sky-wobble 7s ease-in-out infinite;
-  animation-delay: 1.2s;
 }
 
 /* Cloud bumps */
@@ -2425,27 +2459,12 @@ body {
   right: 16px;
 }
 
-/* --- Hanging strings --- */
+/* --- Hanging strings (no separate animation, moves with parent) --- */
 .sky-login__string {
   width: 1px;
   background: rgba(255, 255, 255, 0.3);
   height: 60px;
   margin: 0 auto;
-  transform-origin: top center;
-}
-
-.sky-login__string--1 {
-  animation: sky-drift 6s ease-in-out infinite, sky-wobble 8s ease-in-out infinite;
-}
-
-.sky-login__string--2 {
-  animation: sky-drift 8s ease-in-out infinite, sky-wobble 10s ease-in-out infinite;
-  animation-delay: 0.5s;
-}
-
-.sky-login__string--3 {
-  animation: sky-drift 5s ease-in-out infinite, sky-wobble 7s ease-in-out infinite;
-  animation-delay: 1.2s;
 }
 
 /* --- Glass inputs --- */
