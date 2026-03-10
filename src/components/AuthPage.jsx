@@ -94,7 +94,7 @@ export default function AuthPage({ onLogin }) {
 
             {/* Header */}
             <header className="sky-login__header">
-                <h1 className="sky-login__title">CloudDrive</h1>
+                <h1 className="sky-login__title">Home Cloud</h1>
                 <p className="sky-login__subtitle sky-login__subtitle--desktop">Your files, floating gracefully.</p>
             </header>
 
