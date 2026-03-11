@@ -373,15 +373,33 @@ class ApiService {
         return this.request(`/files/search?${params.toString()}`);
     }
 
-    // ============ THUMBNAILS ============
-    getFileThumbnailUrl(fileId) {
-        const token = this.getToken();
-        return `${API_BASE_URL}/files/${fileId}/thumbnail?token=${encodeURIComponent(token)}`;
+    // ============ THUMBNAILS & PREVIEWS ============
+    /**
+     * Fetch a thumbnail as a blob URL using Authorization header.
+     * @param {string} fileId
+     * @returns {Promise<string>} Object URL for the thumbnail blob
+     */
+    async fetchThumbnailBlob(fileId) {
+        const response = await fetch(`${API_BASE_URL}/files/${fileId}/thumbnail`, {
+            headers: { 'Authorization': `Bearer ${this.getToken()}` },
+        });
+        if (!response.ok) throw new Error('Thumbnail fetch failed');
+        const blob = await response.blob();
+        return URL.createObjectURL(blob);
     }
 
-    getFilePreviewUrl(fileId) {
-        const token = this.getToken();
-        return `${API_BASE_URL}/files/${fileId}/preview?token=${encodeURIComponent(token)}`;
+    /**
+     * Fetch a file preview as a blob URL using Authorization header.
+     * @param {string} fileId
+     * @returns {Promise<string>} Object URL for the preview blob
+     */
+    async fetchPreviewBlob(fileId) {
+        const response = await fetch(`${API_BASE_URL}/files/${fileId}/preview`, {
+            headers: { 'Authorization': `Bearer ${this.getToken()}` },
+        });
+        if (!response.ok) throw new Error('Preview fetch failed');
+        const blob = await response.blob();
+        return URL.createObjectURL(blob);
     }
 }
 

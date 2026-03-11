@@ -53,15 +53,19 @@ export default function FileCard({
 
     // Use server thumbnail if available, fallback to client blob
     useEffect(() => {
+        let revoke = null;
         if (file.thumbnail_url) {
-            setThumbnail(api.getFileThumbnailUrl(file.id));
+            api.fetchThumbnailBlob(file.id)
+                .then(url => { setThumbnail(url); revoke = url; })
+                .catch(() => setThumbnail(null));
         } else if (file.type === "image" && file.blob) {
             const url = URL.createObjectURL(file.blob);
             setThumbnail(url);
-            return () => URL.revokeObjectURL(url);
+            revoke = url;
         } else {
             setThumbnail(null);
         }
+        return () => { if (revoke) URL.revokeObjectURL(revoke); };
     }, [file]);
 
     const handleClick = (e) => {

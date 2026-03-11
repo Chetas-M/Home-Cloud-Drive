@@ -624,29 +624,10 @@ PREVIEWABLE_TYPES = {"image", "video", "pdf", "text"}
 async def preview_file(
     request: Request,
     file_id: str,
-    token: str = Query(None, description="Auth token for iframe/img src usage"),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Serve file content inline for preview. Accepts token via query param for iframe/img src."""
-    from app.config import get_settings
-    from jose import jwt, JWTError
-
-    _settings = get_settings()
-    current_user = None
-
-    # Authenticate via query token (same pattern as thumbnails)
-    if token:
-        try:
-            payload = jwt.decode(token, _settings.secret_key, algorithms=[_settings.algorithm])
-            user_id = payload.get("sub")
-            if user_id:
-                result = await db.execute(select(User).where(User.id == user_id))
-                current_user = result.scalar_one_or_none()
-        except JWTError:
-            pass
-
-    if not current_user:
-        raise HTTPException(status_code=401, detail="Authentication required")
+    """Serve file content inline for preview. Authenticated via Authorization header."""
 
     result = await db.execute(
         select(FileModel).where(
@@ -739,29 +720,10 @@ async def preview_file(
 @router.get("/{file_id}/thumbnail", response_model=None)
 async def get_thumbnail(
     file_id: str,
-    token: str = Query(None, description="Auth token for img src usage"),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Serve a file's thumbnail image. Accepts token via query param for img src."""
-    from app.config import get_settings
-    from jose import jwt, JWTError
-    
-    _settings = get_settings()
-    current_user = None
-    
-    # Try to get user from query token
-    if token:
-        try:
-            payload = jwt.decode(token, _settings.secret_key, algorithms=[_settings.algorithm])
-            user_id = payload.get("sub")
-            if user_id:
-                result = await db.execute(select(User).where(User.id == user_id))
-                current_user = result.scalar_one_or_none()
-        except JWTError:
-            pass
-    
-    if not current_user:
-        raise HTTPException(status_code=401, detail="Authentication required")
+    """Serve a file's thumbnail image. Authenticated via Authorization header."""
     
     result = await db.execute(
         select(FileModel).where(

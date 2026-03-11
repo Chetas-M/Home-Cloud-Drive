@@ -11,6 +11,7 @@ export default function FilePreviewModal({
 }) {
     const [textContent, setTextContent] = useState(null);
     const [textLoading, setTextLoading] = useState(false);
+    const [previewUrl, setPreviewUrl] = useState(null);
 
     // Fetch text content when previewing text files
     useEffect(() => {
@@ -28,6 +29,17 @@ export default function FilePreviewModal({
         } else {
             setTextContent(null);
         }
+    }, [file]);
+
+    // Fetch blob URL for image/video/PDF previews (avoids JWT in URL)
+    useEffect(() => {
+        if (["image", "video", "pdf"].includes(file.type)) {
+            setPreviewUrl(null);
+            api.fetchPreviewBlob(file.id)
+                .then(url => setPreviewUrl(url))
+                .catch(() => setPreviewUrl(null));
+        }
+        return () => { if (previewUrl) URL.revokeObjectURL(previewUrl); };
     }, [file]);
 
     // Keyboard navigation
@@ -58,8 +70,14 @@ export default function FilePreviewModal({
             }
         }
 
-        // Image, video, PDF: use authenticated preview URL from backend
-        const previewUrl = api.getFilePreviewUrl(file.id);
+        // Image, video, PDF: use fetched blob URL
+        if (!previewUrl) {
+            return (
+                <div className="preview-placeholder">
+                    <p>Loading preview...</p>
+                </div>
+            );
+        }
 
         if (file.type === "image") {
             return <img src={previewUrl} alt={file.name} className="preview-image" />;
