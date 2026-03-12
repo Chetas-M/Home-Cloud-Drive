@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     @classmethod
     def validate_secret_key(cls, v):
         """Block insecure placeholder keys at startup"""
-        blocked = ['dev-secret', 'change-in-production', 'your-secret', 'example', 'changeme', 'placeholder']
+        blocked = ['dev-secret', 'change-in-production', 'your-secret', 'super-secret', 'example', 'changeme', 'change_me', 'placeholder']
         v_lower = v.lower()
         for word in blocked:
             if word in v_lower:
