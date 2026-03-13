@@ -257,10 +257,23 @@ async def download_file(
     db.add(activity)
     await db.flush()
     
-    return FileResponse(
-        path=file.storage_path,
-        filename=file.name,
-        media_type=file.mime_type or "application/octet-stream"
+    file_size = os.path.getsize(file.storage_path)
+
+    def iter_file():
+        with open(file.storage_path, "rb") as f:
+            while True:
+                chunk = f.read(65536)  # 64KB chunks
+                if not chunk:
+                    break
+                yield chunk
+
+    return StreamingResponse(
+        iter_file(),
+        media_type=file.mime_type or "application/octet-stream",
+        headers={
+            "Content-Length": str(file_size),
+            "Content-Disposition": f'attachment; filename="{file.name}"',
+        }
     )
 
 
