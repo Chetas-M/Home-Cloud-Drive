@@ -246,6 +246,128 @@ export default function App() {
         uploadAbortRef.current = null;
     };
 
+    /* ---------------- FOLDER UPLOAD ---------------- */
+    const handleFolderUpload = async (fileList) => {
+        const filesArray = Array.from(fileList).filter(f => f.size > 0 || f.name);
+        if (filesArray.length === 0) return;
+
+        // Collect unique intermediate folder paths from webkitRelativePath
+        // e.g. "myFolder/sub/file.txt" -> folders: ["myFolder", "myFolder/sub"]
+        const folderSet = new Set();
+        filesArray.forEach(file => {
+            const relPath = file.webkitRelativePath || file.name;
+            const parts = relPath.split('/');
+            // All but the last part are folder segments
+            for (let i = 1; i < parts.length; i++) {
+                folderSet.add(parts.slice(0, i).join('/'));
+            }
+        });
+
+        // Sort folders by depth so parents are created first
+        const foldersToCreate = Array.from(folderSet).sort(
+            (a, b) => a.split('/').length - b.split('/').length
+        );
+
+        // Create folders
+        const createdFolders = new Set();
+        for (const folderPath of foldersToCreate) {
+            const parts = folderPath.split('/');
+            const folderName = parts[parts.length - 1];
+            // Parent path = currentPath + all parts except the last
+            const parentPath = [...currentPath, ...parts.slice(0, -1)];
+            try {
+                await api.createFolder(folderName, parentPath);
+                createdFolders.add(folderPath);
+            } catch (err) {
+                // Folder may already exist — that's OK
+                if (!err.message?.includes('already exists')) {
+                    console.error(`Failed to create folder ${folderPath}:`, err);
+                }
+            }
+        }
+
+        // Now upload each file with the correct sub-path
+        const totalFiles = filesArray.length;
+        const initialProgress = {};
+        filesArray.forEach((file, i) => {
+            initialProgress[i] = {
+                name: file.webkitRelativePath || file.name,
+                size: file.size,
+                loaded: 0,
+                total: file.size,
+                percent: 0,
+                speed: 0,
+                eta: 0,
+                status: 'waiting',
+                fileIndex: i + 1,
+                totalFiles,
+            };
+        });
+        setUploadProgress(initialProgress);
+
+        try {
+            for (let i = 0; i < filesArray.length; i++) {
+                const file = filesArray[i];
+                const relPath = file.webkitRelativePath || file.name;
+                const parts = relPath.split('/');
+                // The file's target path = currentPath + all folder segments
+                const filePath = [...currentPath, ...parts.slice(0, -1)];
+
+                setUploadProgress(p => ({
+                    ...p,
+                    [i]: { ...p[i], status: 'uploading' },
+                }));
+
+                const { promise, abort } = api.uploadFileWithProgress(
+                    file,
+                    filePath,
+                    (progress) => {
+                        setUploadProgress(p => ({
+                            ...p,
+                            [i]: {
+                                ...p[i],
+                                loaded: progress.loaded,
+                                total: progress.total,
+                                percent: progress.percent,
+                                speed: progress.speed,
+                                eta: progress.eta,
+                                status: 'uploading',
+                            },
+                        }));
+                    }
+                );
+
+                uploadAbortRef.current = abort;
+                await promise;
+
+                setUploadProgress(p => ({
+                    ...p,
+                    [i]: { ...p[i], percent: 100, status: 'done', speed: 0, eta: 0 },
+                }));
+            }
+
+            setTimeout(() => setUploadProgress({}), 1500);
+            loadFiles();
+        } catch (err) {
+            if (err.message === 'Upload cancelled') {
+                setUploadProgress({});
+            } else {
+                console.error('Folder upload failed:', err);
+                setUploadProgress(p => {
+                    const updated = { ...p };
+                    Object.keys(updated).forEach(key => {
+                        if (updated[key].status === 'uploading' || updated[key].status === 'waiting') {
+                            updated[key].status = 'error';
+                        }
+                    });
+                    return updated;
+                });
+                setTimeout(() => setUploadProgress({}), 3000);
+            }
+        }
+        uploadAbortRef.current = null;
+    };
+
     const cancelUpload = () => {
         if (uploadAbortRef.current) {
             uploadAbortRef.current();
@@ -260,8 +382,12 @@ export default function App() {
             const a = document.createElement("a");
             a.href = url;
             a.download = file.name;
+            a.style.display = "none";
+            document.body.appendChild(a);
             a.click();
-            URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+            // Delay revocation so the browser has time to start reading the blob
+            setTimeout(() => URL.revokeObjectURL(url), 10000);
         } catch (err) {
             console.error("Download failed:", err);
         }
@@ -602,6 +728,8 @@ export default function App() {
                     view={view}
                     onViewChange={setView}
                     onUpload={handleUpload}
+                    onUploadFolder={handleFolderUpload}
+                    onNewFolder={() => setShowNewFolderModal(true)}
                     onNavigateToPath={handleNavigateToPath}
                     sortBy={sortBy}
                     onSortChange={setSortBy}
