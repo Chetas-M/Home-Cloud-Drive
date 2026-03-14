@@ -103,6 +103,7 @@ services:
 
     networks:
       - homecloud_internal
+      - homecloud_external
 
 # ===========================================
 # Named volumes for data persistence
@@ -128,4 +129,6 @@ volumes:
 networks:
   homecloud_internal:
     driver: bridge
-    internal: false
+    internal: true
+  homecloud_external:
+    driver: bridge
