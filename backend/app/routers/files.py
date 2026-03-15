@@ -53,8 +53,11 @@ def sanitize_filename(filename: Optional[str]) -> str:
 def build_content_disposition(disposition: str, filename: str) -> str:
     """Create a safe Content-Disposition header value."""
     safe_name = sanitize_filename(filename)
-    ascii_name = safe_name.encode("ascii", "ignore").decode("ascii") or "file"
-    ascii_name = ascii_name.replace('"', "_")
+    ascii_name = unicodedata.normalize("NFKD", safe_name).encode("ascii", "ignore").decode("ascii")
+    ascii_name = "".join(
+        char if char.isalnum() or char in {" ", ".", "_", "-"} else "_"
+        for char in ascii_name
+    ).strip() or "file"
     encoded_name = quote(safe_name, safe="")
     return f"{disposition}; filename=\"{ascii_name}\"; filename*=UTF-8''{encoded_name}"
 
