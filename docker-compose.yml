@@ -93,10 +93,12 @@ services:
   # Cloudflare Tunnel — Auto-HTTPS, no ports needed
   # ===========================================
   tunnel:
-    image: cloudflare/cloudflared:latest
+    image: cloudflare/cloudflared:2024.12.0
     container_name: homecloud-tunnel
     restart: unless-stopped
-    command: tunnel --no-autoupdate run --token ${TUNNEL_TOKEN:?TUNNEL_TOKEN must be set in .env}
+    command: tunnel --no-autoupdate run
+    environment:
+      - TUNNEL_TOKEN=${TUNNEL_TOKEN:?TUNNEL_TOKEN must be set in .env}
 
     depends_on:
       - frontend

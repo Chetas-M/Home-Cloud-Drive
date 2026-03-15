@@ -52,11 +52,20 @@ def sanitize_filename(filename: Optional[str]) -> str:
 
 def build_content_disposition(disposition: str, filename: str) -> str:
     """Create a safe Content-Disposition header value."""
+    # Restrict disposition to a small allowlist to prevent header injection.
+    allowed_dispositions = {"inline", "attachment"}
+    normalized_disposition = (disposition or "").strip().lower()
+    if normalized_disposition not in allowed_dispositions:
+        normalized_disposition = "attachment"
+
     safe_name = sanitize_filename(filename)
-    ascii_name = safe_name.encode("ascii", "ignore").decode("ascii") or "file"
-    ascii_name = ascii_name.replace('"', "_")
+    ascii_name = unicodedata.normalize("NFKD", safe_name).encode("ascii", "ignore").decode("ascii")
+    ascii_name = "".join(
+        char if char.isalnum() or char in {" ", ".", "_", "-"} else "_"
+        for char in ascii_name
+    ).strip() or "file"
     encoded_name = quote(safe_name, safe="")
-    return f"{disposition}; filename=\"{ascii_name}\"; filename*=UTF-8''{encoded_name}"
+    return f"{normalized_disposition}; filename=\"{ascii_name}\"; filename*=UTF-8''{encoded_name}"
 
 
 def get_file_type(filename: str, mime_type: str = None) -> str:
