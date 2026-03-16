@@ -46,6 +46,15 @@ class PasswordChange(BaseModel):
     new_password: str = Field(..., min_length=6)
 
 
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordConfirm(BaseModel):
+    token: str
+    new_password: str = Field(..., min_length=6)
+
+
 class AdminPasswordReset(BaseModel):
     new_password: str = Field(..., min_length=6)
 
