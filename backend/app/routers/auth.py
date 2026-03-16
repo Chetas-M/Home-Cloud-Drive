@@ -40,11 +40,9 @@ def build_password_reset_url(request: Request, token: str) -> str:
     if settings.password_reset_url:
         base_url = settings.password_reset_url
     else:
-        origin = request.headers.get("origin")
-        if origin:
-            base_url = origin
-        else:
-            base_url = str(request.base_url).rstrip("/")
+        # Fallback to the server-controlled base URL derived from the request,
+        # and do not trust client-controlled headers like Origin.
+        base_url = str(request.base_url).rstrip("/")
     return f"{urljoin(base_url.rstrip('/') + '/', '')}?reset_token={token}"
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
