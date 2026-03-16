@@ -3,6 +3,7 @@ Home Cloud Drive - Email utilities
 """
 import smtplib
 from email.message import EmailMessage
+import html
 
 from app.config import get_settings
 
@@ -30,10 +31,12 @@ def send_password_reset_email(recipient_email: str, username: str, reset_url: st
         f"This link expires in {settings.password_reset_expire_minutes} minutes.\n"
         "If you did not request this, you can safely ignore this email.\n"
     )
+    safe_username = html.escape(username)
+    safe_reset_url = html.escape(reset_url, quote=True)
     html_body = (
-        f"<p>Hello {username},</p>"
+        f"<p>Hello {safe_username},</p>"
         "<p>We received a request to reset your Home Cloud password.</p>"
-        f"<p><a href=\"{reset_url}\">Choose a new password</a></p>"
+        f"<p><a href=\"{safe_reset_url}\">Choose a new password</a></p>"
         f"<p>This link expires in {settings.password_reset_expire_minutes} minutes.</p>"
         "<p>If you did not request this, you can safely ignore this email.</p>"
     )
