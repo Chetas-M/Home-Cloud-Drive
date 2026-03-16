@@ -2,25 +2,50 @@
 Home Cloud Drive - Authentication Router
 """
 from datetime import timedelta
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from urllib.parse import urljoin
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.limiter import limiter
 from app.models import User
-from app.schemas import UserCreate, UserResponse, UserLogin, Token, PasswordChange
+from app.schemas import (
+    UserCreate,
+    UserResponse,
+    UserLogin,
+    Token,
+    PasswordChange,
+    ForgotPasswordRequest,
+    ResetPasswordConfirm,
+)
 from app.auth import (
     get_password_hash,
     create_access_token,
+    create_password_reset_token,
     get_current_user,
     get_user_by_email,
     get_user_by_username,
     authenticate_user,
+    verify_password_reset_token,
 )
 from app.config import get_settings
+from app.email import send_password_reset_email
 
 settings = get_settings()
 router = APIRouter(prefix="/api/auth", tags=["Authentication"])
+
+
+def build_password_reset_url(request: Request, token: str) -> str:
+    """Build the frontend password reset URL from config or the current request."""
+    if settings.password_reset_url:
+        base_url = settings.password_reset_url
+    else:
+        origin = request.headers.get("origin")
+        if origin:
+            base_url = origin
+        else:
+            base_url = str(request.base_url).rstrip("/")
+    return f"{urljoin(base_url.rstrip('/') + '/', '')}?reset_token={token}"
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 @limiter.limit("10/minute")
@@ -119,4 +144,65 @@ async def change_password(
     await db.flush()
 
     return {"detail": "Password changed successfully"}
+
+
+@router.post("/forgot-password", status_code=status.HTTP_200_OK)
+@limiter.limit("5/minute")
+async def forgot_password(
+    request: Request,
+    data: ForgotPasswordRequest,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+):
+    """Send a password reset link to the user if reset email is configured."""
+    if not settings.password_reset_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Password reset email is not configured for this server",
+        )
+
+    user = await get_user_by_email(db, data.email)
+    if user:
+        token = create_password_reset_token(user.id)
+        reset_url = build_password_reset_url(request, token)
+        background_tasks.add_task(
+            send_password_reset_email,
+            user.email,
+            user.username,
+            reset_url,
+        )
+
+    return {
+        "detail": "If an account exists for that email, a password reset link has been sent."
+    }
+
+
+@router.post("/reset-password", status_code=status.HTTP_200_OK)
+@limiter.limit("5/minute")
+async def reset_password(
+    request: Request,
+    data: ResetPasswordConfirm,
+    db: AsyncSession = Depends(get_db),
+):
+    """Reset a user's password using a valid password reset token."""
+    user_id = verify_password_reset_token(data.token)
+
+    result = await db.get(User, user_id)
+    if not result:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired password reset link",
+        )
+
+    from app.auth import verify_password
+
+    if verify_password(data.new_password, result.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="New password must be different from your current password",
+        )
+
+    result.password_hash = get_password_hash(data.new_password)
+
+    return {"detail": "Password reset successfully. You can now sign in."}
 

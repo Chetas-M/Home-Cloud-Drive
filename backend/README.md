@@ -57,6 +57,8 @@ docker-compose up -d --build
 |--------|----------|-------------|
 | POST | `/api/auth/register` | Register new user |
 | POST | `/api/auth/login` | Login (get JWT token) |
+| POST | `/api/auth/forgot-password` | Send password reset link |
+| POST | `/api/auth/reset-password` | Reset password from reset link |
 | GET | `/api/auth/me` | Get current user info |
 
 ### Files
@@ -94,6 +96,16 @@ Environment variables (in `.env`):
 | `STORAGE_PATH` | `./storage` | File storage directory |
 | `MAX_STORAGE_BYTES` | `107374182400` (100GB) | Max storage per user |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | `1440` (24h) | Token expiration |
+| `PASSWORD_RESET_EXPIRE_MINUTES` | `30` | Password reset link expiration |
+| `SMTP_HOST` | - | SMTP host for password reset emails |
+| `SMTP_PORT` | `587` | SMTP port |
+| `SMTP_USERNAME` | - | SMTP username |
+| `SMTP_PASSWORD` | - | SMTP password |
+| `SMTP_FROM_EMAIL` | - | Sender address for password reset emails |
+| `SMTP_FROM_NAME` | `Home Cloud` | Sender display name |
+| `SMTP_USE_TLS` | `true` | Enable STARTTLS for SMTP |
+| `SMTP_USE_SSL` | `false` | Use implicit SSL instead of STARTTLS |
+| `PASSWORD_RESET_URL` | - | Optional frontend URL used in reset emails |
 
 ## Project Structure
 

@@ -32,6 +32,7 @@ class Settings(BaseSettings):
         return v
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 1440  # 24 hours
+    password_reset_expire_minutes: int = 30
 
     # Database
     database_url: str = "sqlite+aiosqlite:///./data/homecloud.db"
@@ -61,6 +62,29 @@ class Settings(BaseSettings):
 
     # Registration control - default OFF for secure-by-default; enable explicitly via env
     allow_registration: bool = False
+
+    # SMTP / password reset email
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    smtp_username: str | None = None
+    smtp_password: str | None = None
+    smtp_from_email: str | None = None
+    smtp_from_name: str = "Home Cloud"
+    smtp_use_tls: bool = True
+    smtp_use_ssl: bool = False
+    smtp_timeout_seconds: int = 15
+    password_reset_url: str | None = None
+
+    @property
+    def password_reset_enabled(self) -> bool:
+        """Password reset requires a delivery channel for reset links."""
+        if not self.smtp_host or not self.smtp_from_email:
+            return False
+        if self.smtp_use_ssl and self.smtp_use_tls:
+            return False
+        if self.smtp_username and not self.smtp_password:
+            return False
+        return True
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 
