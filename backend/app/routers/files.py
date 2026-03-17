@@ -304,7 +304,6 @@ async def init_chunked_upload(
     request: Request,
     init_req: ChunkedUploadInitRequest,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
 ):
     """Initialize a resumable chunked upload."""
     # Check overall storage quota before starting
