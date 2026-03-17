@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File,
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, or_
+import logging
 
 from app.database import get_db
 from app.limiter import limiter
@@ -31,6 +32,7 @@ from app.config import get_settings
 from app.thumbnails import generate_thumbnail, can_generate_thumbnail
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/files", tags=["Files"])
 
 CHUNK_SIZE = 1024 * 1024  # 1 MB chunks for streaming uploads
@@ -403,10 +405,11 @@ async def complete_chunked_upload(
                             break
                         outfile.write(data)
                         assembled_size += len(data)
-    except Exception as e:
+    except Exception:
         if os.path.exists(final_storage_filepath):
             os.remove(final_storage_filepath)
-        raise HTTPException(status_code=500, detail=f"Failed to assemble file: {e}")
+        logger.exception("Failed to assemble file during chunk assembly")
+        raise HTTPException(status_code=500, detail="Failed to assemble file.")
 
     # Clean up temp dir
     import shutil
