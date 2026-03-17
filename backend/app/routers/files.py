@@ -4,6 +4,7 @@ Home Cloud Drive - Files Router
 import os
 import json
 import uuid
+import shutil
 import aiofiles
 import mimetypes
 import unicodedata
@@ -36,6 +37,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/files", tags=["Files"])
 
 CHUNK_SIZE = 1024 * 1024  # 1 MB chunks for streaming uploads
+STALE_UPLOAD_TTL_SECONDS = 24 * 60 * 60  # 24 hours
 
 
 def sanitize_filename(filename: Optional[str]) -> str:
@@ -132,6 +134,32 @@ def get_serialized_path_prefixes(path: List[str]) -> List[str]:
 def normalize_path(path_json: str) -> str:
     """Normalize incoming path JSON for stable DB comparisons."""
     return serialize_path(parse_path(path_json or "[]"))
+
+
+async def cleanup_stale_uploads(base_tmp_dir: str, ttl_seconds: int = STALE_UPLOAD_TTL_SECONDS) -> None:
+    """Best-effort cleanup for abandoned chunked upload sessions."""
+    if not os.path.isdir(base_tmp_dir):
+        return
+
+    now_ts = datetime.now(timezone.utc).timestamp()
+    try:
+        with os.scandir(base_tmp_dir) as entries:
+            for entry in entries:
+                if not entry.is_dir():
+                    continue
+
+                try:
+                    modified_ts = entry.stat().st_mtime
+                except OSError:
+                    continue
+
+                if now_ts - modified_ts > ttl_seconds:
+                    try:
+                        shutil.rmtree(entry.path, ignore_errors=True)
+                    except OSError:
+                        pass
+    except OSError:
+        return
 
 
 @router.get("", response_model=List[FileResponseSchema])
@@ -322,8 +350,11 @@ async def init_chunked_upload(
             detail=f"File exceeds max size of {settings.max_file_size_bytes} bytes"
         )
 
+    user_tmp_root = os.path.join(settings.storage_path, "tmp", current_user.id)
+    await cleanup_stale_uploads(user_tmp_root)
+
     upload_id = str(uuid.uuid4())
-    temp_dir = os.path.join(settings.storage_path, "tmp", current_user.id, upload_id)
+    temp_dir = os.path.join(user_tmp_root, upload_id)
     os.makedirs(temp_dir, exist_ok=True)
 
     # Return the upload_id and standard chunk size (e.g. 5 MB)
@@ -343,7 +374,9 @@ async def upload_chunk(
     current_user: User = Depends(get_current_user)
 ):
     """Upload a single chunk for a resumable upload."""
-    temp_dir = os.path.join(settings.storage_path, "tmp", current_user.id, upload_id)
+    user_tmp_root = os.path.join(settings.storage_path, "tmp", current_user.id)
+    await cleanup_stale_uploads(user_tmp_root)
+    temp_dir = os.path.join(user_tmp_root, upload_id)
     
     if not os.path.exists(temp_dir):
         raise HTTPException(status_code=404, detail="Upload session not found or expired")
