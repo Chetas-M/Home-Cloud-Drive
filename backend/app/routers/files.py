@@ -187,15 +187,23 @@ async def search_files(
     if not normalized_query:
         return []
 
-    like_query = f"%{normalized_query}%"
+    # Escape LIKE metacharacters so the query is treated as a literal substring.
+    # The backslash is used as the escape character and must be escaped first.
+    escaped_query = (
+        normalized_query
+        .replace("\\", "\\\\")
+        .replace("%", "\\%")
+        .replace("_", "\\_")
+    )
+    like_query = f"%{escaped_query}%"
     conditions = [
         FileModel.owner_id == current_user.id,
         or_(
-            FileModel.name.ilike(like_query),
-            FileModel.path.ilike(like_query),
-            FileModel.mime_type.ilike(like_query),
-            FileModel.type.ilike(like_query),
-            FileModel.content_index.ilike(like_query),
+            FileModel.name.ilike(like_query, escape="\\"),
+            FileModel.path.ilike(like_query, escape="\\"),
+            FileModel.mime_type.ilike(like_query, escape="\\"),
+            FileModel.type.ilike(like_query, escape="\\"),
+            FileModel.content_index.ilike(like_query, escape="\\"),
         ),
     ]
 
