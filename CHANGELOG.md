@@ -1,5 +1,30 @@
 # Home Cloud Drive — Development Report
-**Period:** Feb 15–17, 2026 · **Commits:** 6 · **Lines Added:** ~900+
+
+## Latest Updates (Feb 18–Mar 21, 2026)
+
+### 🚀 Major Features
+- **Server-Backed File Search:** Real database search with background auto-indexing to keep the UI snappy without blocking the main event loop. Added LIKE metacharacter escaping to prevent wildcard injections.
+- **Resumable Chunked Uploads:** Upload large files reliably by splitting them into chunks that assemble automatically on the server.
+- **Folder Management & Drag-and-Drop:** Drag-and-drop support to move files and folders. Added full folder upload, recursive folder logic, and file copying endpoints.
+- **UI Enhancements:** Completely redesigned "sky-themed" login page with dynamic cloud animations, glassmorphism, and responsive dual layouts. Added toast notifications, keyboard shortcuts, download progress indicators, and dynamic file sorting.
+- **Media Streaming:** Replaced monolithic downloads for previews with HTTP Range requests for seamless video, PDF, and high-quality image viewing inline.
+- **Password Reset Flow:** Added password reset/forgot-password end-to-end functionality via an asynchronous email delivery thread pool.
+
+### 🛡 Security & Infrastructure
+- **Network Stack:** Shifted from local Caddy proxy exposure to secure Cloudflare Tunnels (`cloudflared`). Enforced container immutability by pinning image digests.
+- **Auth Hardening:** Public signups disabled by default (`ALLOW_REGISTRATION=false`). Enforced valid `SECRET_KEY` at startup.
+- **Vulnerability Patches:** Removed JWT tokens from URL queries (replaced by authenticated blob fetch requests); mitigated path traversal on shared downloads; fixed password-reset poisoning risks; enforced max file size post chunk assembly.
+
+### 🐛 Bug Fixes
+- Fixed 0-byte downloaded files by switching to `StreamingResponse` for downloads.
+- Fixed event loop blocking during file chunk assembly in FastAPI via `asyncio.to_thread`.
+- Remedied edge-case upload calculation bugs for zero-byte files.
+- Wired SlowAPI rate limiter correctly to application state for returning appropriate 429 login throttling errors.
+
+---
+
+## Previous: Feb 15–17, 2026
+**Commits:** 6 · **Lines Added:** ~900+
 
 ---
 

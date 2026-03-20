@@ -20,10 +20,12 @@ Home Cloud Drive lets you upload, organize, preview, share, and manage files wit
 
 ## Features
 
-- JWT authentication (register/login/current-user)
-- File upload/download with real-time progress + cancellation
-- Folder hierarchy and file organization
-- Rename/move/trash/restore/permanent delete flows
+- JWT authentication (register/login/current-user) with Password Reset Flow
+- Resumable chunked file uploads & folder uploads with real-time UI progress
+- Server-backed file search with background auto-indexing
+- Drag-and-drop organization inside a detailed folder hierarchy
+- HTTP Range Request streaming for seamless Video, Audio, & PDF inline preview
+- Rename/move/copy/trash/restore/permanent delete flows
 - Favorites (starred files)
 - Image thumbnails generated server-side
 - Secure sharing links (password, expiry, download limits)
