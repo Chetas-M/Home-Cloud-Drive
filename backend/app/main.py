@@ -1,6 +1,7 @@
 """
 Home Cloud Drive - FastAPI Application Entry Point
 """
+import asyncio
 import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, HTTPException
@@ -90,39 +91,105 @@ async def cleanup_old_trash():
         print(f"[+] Trash cleanup: deleted {deleted_count} files older than {days} days")
 
 
+BACKFILL_BATCH_SIZE = 100
+
+
 async def backfill_search_index():
-    """Populate search indexes for existing files that predate indexing."""
-    from sqlalchemy import select, or_
+    """Populate search indexes for existing files that predate indexing.
+
+    Runs as a non-blocking background task.  Files are processed in batches of
+    BACKFILL_BATCH_SIZE with a commit after every batch to keep individual
+    transactions small.  A non-blocking exclusive file lock prevents multiple
+    workers from running the backfill concurrently in multi-worker deployments.
+
+    After processing, ``content_index`` is set to the extracted text, or to
+    ``""`` (empty string) as a sentinel for "checked – nothing to index".
+    Only rows with ``content_index IS NULL`` are treated as unprocessed, so
+    binary files are not re-examined on every startup.
+    """
+    try:
+        import fcntl as _fcntl
+    except ImportError:
+        # fcntl is not available on Windows; file locking is skipped on that platform.
+        _fcntl = None
+        print("[!] Search index backfill: fcntl unavailable, multi-worker lock disabled")
+
+    from sqlalchemy import select
     from app.database import async_session
     from app.models import File as FileModel
     from app.search_index import build_search_document
 
-    async with async_session() as db:
-        result = await db.execute(
-            select(FileModel).where(
-                or_(FileModel.content_index == None, FileModel.content_index == "")
-            )
-        )
-        files = result.scalars().all()
+    lock_path = "./data/.backfill.lock"
+    lock_fd = None
+    if _fcntl is not None:
+        try:
+            lock_fd = open(lock_path, "w")
+            _fcntl.flock(lock_fd, _fcntl.LOCK_EX | _fcntl.LOCK_NB)
+        except BlockingIOError:
+            print("[*] Search index backfill: another worker is already running, skipping")
+            if lock_fd is not None:
+                lock_fd.close()
+            return
+        except OSError as exc:
+            print(f"[!] Search index backfill: could not acquire lock ({exc}), skipping")
+            if lock_fd is not None:
+                lock_fd.close()
+            return
 
-        updated_count = 0
-        for file in files:
-            indexed_content = build_search_document(
-                file.storage_path,
-                file.name,
-                file.mime_type,
-                file.type,
-            )
-            if indexed_content == file.content_index:
-                continue
-            file.content_index = indexed_content
-            updated_count += 1
+    try:
+        total_updated = 0
+        while True:
+            async with async_session() as db:
+                result = await db.execute(
+                    select(FileModel)
+                    .where(FileModel.content_index.is_(None))
+                    .limit(BACKFILL_BATCH_SIZE)
+                )
+                files = result.scalars().all()
 
-        if updated_count:
-            await db.commit()
-            print(f"[+] Search index backfill: updated {updated_count} files")
-        else:
-            print("[*] Search index backfill: no updates needed")
+                if not files:
+                    break
+
+                for file in files:
+                    indexed_content = await asyncio.to_thread(
+                        build_search_document,
+                        file.storage_path,
+                        file.name,
+                        file.mime_type,
+                        file.type,
+                    )
+                    # Use "" as a sentinel for "checked, nothing to index" so
+                    # these rows are not revisited on the next startup.
+                    file.content_index = indexed_content or ""
+
+                await db.commit()
+                total_updated += len(files)
+
+            # Yield to other async tasks between batches.
+            await asyncio.sleep(0)
+
+    finally:
+        if lock_fd is not None and _fcntl is not None:
+            _fcntl.flock(lock_fd, _fcntl.LOCK_UN)
+            lock_fd.close()
+        try:
+            os.remove(lock_path)
+        except OSError:
+            pass
+
+    if total_updated:
+        print(f"[+] Search index backfill: updated {total_updated} files")
+    else:
+        print("[*] Search index backfill: no updates needed")
+
+
+def _backfill_done_callback(task: asyncio.Task) -> None:
+    """Log any unhandled exception from the backfill background task."""
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        print(f"[!] Search index backfill failed with unhandled exception: {exc!r}")
 
 
 @asynccontextmanager
@@ -142,15 +209,26 @@ async def lifespan(app: FastAPI):
     await run_migrations()
     print("[+] Migrations complete")
 
-    # Populate missing content indexes for existing text-like files
-    await backfill_search_index()
+    # Populate missing content indexes as a non-blocking background task.
+    # Store the reference on app.state so it can be awaited/cancelled on shutdown
+    # and the done-callback surfaces any unexpected exceptions.
+    backfill_task = asyncio.create_task(backfill_search_index())
+    backfill_task.add_done_callback(_backfill_done_callback)
+    app.state.backfill_task = backfill_task
     
     # Auto-cleanup old trashed files
     await cleanup_old_trash()
     
     yield
     
-    # Shutdown
+    # Shutdown — cancel the backfill if it is still running
+    task = getattr(app.state, "backfill_task", None)
+    if task is not None and not task.done():
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
     print("[*] Shutting down Home Cloud Drive API...")
 
 
