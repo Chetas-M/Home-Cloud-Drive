@@ -184,8 +184,6 @@ async def get_current_user(
         session_id: str = payload.get("sid")
         if user_id is None:
             raise credentials_exception
-        if session_id is None:
-            raise credentials_exception
         token_data = TokenData(user_id=user_id)
     except JWTError:
         raise credentials_exception
@@ -194,6 +192,15 @@ async def get_current_user(
     user = result.scalar_one_or_none()
     if user is None:
         raise credentials_exception
+
+    # Transition support: legacy tokens issued before session tracking was introduced
+    # may not carry a 'sid' claim. Accept them as untracked sessions so existing users
+    # are not forcibly signed out after deploy. Note that these tokens cannot be
+    # individually revoked via device management. Once all clients have re-authenticated
+    # and received session-aware tokens, this branch should be removed to enforce
+    # full session validation for all tokens.
+    if session_id is None:
+        return user
 
     session_result = await db.execute(
         select(UserSession).where(
