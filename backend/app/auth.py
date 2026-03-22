@@ -194,23 +194,8 @@ async def _get_jwt_payload(
         raise credentials_exception
 
 
-async def get_current_session_id(
-    payload: dict = Depends(_get_jwt_payload),
-) -> str:
-    """Extract and return the session ID from the current JWT payload."""
-    session_id: str = payload.get("sid")
-    if session_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Could not validate credentials",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    return session_id
-
-
 async def get_current_user(
     payload: dict = Depends(_get_jwt_payload),
-    session_id: str = Depends(get_current_session_id),
     db: AsyncSession = Depends(get_db)
 ) -> User:
     credentials_exception = HTTPException(
@@ -228,6 +213,7 @@ async def get_current_user(
     if user is None:
         raise credentials_exception
 
+    session_id: str | None = payload.get("sid")
     # Transition support: legacy tokens issued before session tracking was introduced
     # may not carry a 'sid' claim. Accept them as untracked sessions so existing users
     # are not forcibly signed out after deploy. Note that these tokens cannot be
