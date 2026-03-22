@@ -207,7 +207,6 @@ async def get_current_user(
         raise credentials_exception
 
     if current_session.expires_at <= datetime.now(timezone.utc):
-        current_session.revoked_at = datetime.now(timezone.utc)
         raise credentials_exception
 
     current_session.last_seen_at = datetime.now(timezone.utc)
