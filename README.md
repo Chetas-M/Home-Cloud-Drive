@@ -21,6 +21,8 @@ Home Cloud Drive lets you upload, organize, preview, share, and manage files wit
 ## Features
 
 - JWT authentication (register/login/current-user) with Password Reset Flow
+- Authenticator-based Two-Factor Authentication (2FA)
+- Active Device & Session Management (view and revoke sessions)
 - Resumable chunked file uploads & folder uploads with real-time UI progress
 - Server-backed file search with background auto-indexing
 - Drag-and-drop organization inside a detailed folder hierarchy

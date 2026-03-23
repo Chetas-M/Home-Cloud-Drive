@@ -8,6 +8,8 @@
 - **Folder Management & Drag-and-Drop:** Drag-and-drop support to move files and folders. Added full folder upload, recursive folder logic, and file copying endpoints.
 - **UI Enhancements:** Completely redesigned "sky-themed" login page with dynamic cloud animations, glassmorphism, and responsive dual layouts. Added toast notifications, keyboard shortcuts, download progress indicators, and dynamic file sorting.
 - **Media Streaming:** Replaced monolithic downloads for previews with HTTP Range requests for seamless video, PDF, and high-quality image viewing inline.
+- **Two-Factor Authentication (2FA):** Secure accounts using TOTP authenticator apps.
+- **Device & Session Management:** Monitor active sessions mapped to device names/IPs, and remotely revoke untrusted logins.
 - **Password Reset Flow:** Added password reset/forgot-password end-to-end functionality via an asynchronous email delivery thread pool.
 
 ### 🛡 Security & Infrastructure
@@ -16,6 +18,7 @@
 - **Vulnerability Patches:** Removed JWT tokens from URL queries (replaced by authenticated blob fetch requests); mitigated path traversal on shared downloads; fixed password-reset poisoning risks; enforced max file size post chunk assembly.
 
 ### 🐛 Bug Fixes
+- Fixed naive vs timezone-aware datetime validation crash occurring on initial `/api/auth/me` calls for legacy tokens.
 - Fixed 0-byte downloaded files by switching to `StreamingResponse` for downloads.
 - Fixed event loop blocking during file chunk assembly in FastAPI via `asyncio.to_thread`.
 - Remedied edge-case upload calculation bugs for zero-byte files.
