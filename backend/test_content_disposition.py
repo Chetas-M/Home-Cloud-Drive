@@ -8,7 +8,7 @@ class ContentDispositionTests(unittest.TestCase):
         header = build_content_disposition("attachment", 'report "final"\r\nInjected: 1.txt')
 
         self.assertIn("filename*=UTF-8''report%20%22final%22__Injected%3A%201.txt", header)
-        self.assertIn('filename="report _final__Injected_ 1.txt"', header)
+        self.assertIn('filename="report _final___Injected_ 1.txt"', header)
         self.assertNotIn("\r", header)
         self.assertNotIn("\n", header)
 

@@ -29,7 +29,7 @@ from app.auth import (
 )
 from app.config import get_settings
 from app.database import get_db
-from app.email import send_login_alert_email, send_password_reset_email
+from app.email_service import send_login_alert_email, send_password_reset_email
 from app.limiter import limiter
 from app.models import User, UserSession
 from app.schemas import (
