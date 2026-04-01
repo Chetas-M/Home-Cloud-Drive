@@ -64,6 +64,7 @@ class Settings(BaseSettings):
     # Session last-seen throttle - only write last_seen_at if older than this many seconds.
     # Reduces write amplification on busy deployments (set to 0 to always update).
     session_last_seen_update_interval_seconds: int = 60
+    trust_proxy_headers: bool = False
 
     # Registration control - default OFF for secure-by-default; enable explicitly via env
     allow_registration: bool = False
