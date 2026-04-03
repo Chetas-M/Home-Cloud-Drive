@@ -60,7 +60,11 @@ class ApiService {
 
         if (!response.ok) {
             const error = await response.json().catch(() => ({ detail: 'Request failed' }));
-            throw new Error(error.detail || 'Request failed');
+            const detail = error.detail || 'Request failed';
+            if (typeof detail === 'string' && detail.includes('Password reset email delivery is not configured for this server')) {
+                throw new Error('Password reset is unavailable right now because the server email setup is incomplete. Please contact the administrator.');
+            }
+            throw new Error(detail);
         }
 
         // Handle empty responses (204 No Content)
