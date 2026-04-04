@@ -744,6 +744,8 @@ export default function App() {
     const handleLogout = async () => {
         try {
             await api.logoutCurrentSession();
+        } catch (error) {
+            console.error("Failed to log out current session:", error);
         } finally {
             handleLocalSignOut();
         }
