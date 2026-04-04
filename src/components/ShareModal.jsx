@@ -28,6 +28,13 @@ export default function ShareModal({ file, onClose }) {
     };
 
     const handleCreate = async () => {
+        const trimmedPassword = password.trim();
+
+        if (usePassword && !trimmedPassword) {
+            setError('Enter a password to protect this share link.');
+            return;
+        }
+
         try {
             setLoading(true);
             setError('');
@@ -35,7 +42,7 @@ export default function ShareModal({ file, onClose }) {
                 file_id: file.id,
                 permission,
             };
-            if (usePassword && password) data.password = password;
+            if (usePassword) data.password = trimmedPassword;
             if (expiresHours) data.expires_in_hours = parseInt(expiresHours);
             if (maxDownloads) data.max_downloads = parseInt(maxDownloads);
 
@@ -159,7 +166,11 @@ export default function ShareModal({ file, onClose }) {
                             </select>
                         </div>
 
-                        <button className="share-create-btn" onClick={handleCreate} disabled={loading}>
+                        <button
+                            className="share-create-btn"
+                            onClick={handleCreate}
+                            disabled={loading || (usePassword && !password.trim())}
+                        >
                             <Link2 size={16} />
                             {loading ? 'Creating...' : 'Create share link'}
                         </button>
