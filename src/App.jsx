@@ -742,8 +742,11 @@ export default function App() {
 
     /* ---------------- LOGOUT ---------------- */
     const handleLogout = async () => {
-        await api.logoutCurrentSession();
-        handleLocalSignOut();
+        try {
+            await api.logoutCurrentSession();
+        } finally {
+            handleLocalSignOut();
+        }
     };
 
     const handleLocalSignOut = () => {
