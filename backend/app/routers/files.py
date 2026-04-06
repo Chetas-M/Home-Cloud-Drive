@@ -1140,7 +1140,6 @@ async def restore_file_version(
     file.type = get_file_type(file.name, version.mime_type)
     file.storage_path = new_storage_path
     file.thumbnail_path = thumb_path
-    file.content_index = build_search_document(new_storage_path, file.name, version.mime_type, file.type)
     file.updated_at = now
 
     for _vretry in range(_MAX_VERSION_RETRIES):
@@ -1165,12 +1164,14 @@ async def restore_file_version(
                 )
             next_version = await get_next_version_number(db, file.id)
             new_storage_filename = f"{file.id}_v{next_version}.{ext}" if ext else f"{file.id}_v{next_version}"
-            new_new_storage_path = os.path.join(user_storage_path, new_storage_filename)
-            os.rename(new_storage_path, new_new_storage_path)
-            new_storage_path = new_new_storage_path
+            updated_storage_path = os.path.join(user_storage_path, new_storage_filename)
+            os.rename(new_storage_path, updated_storage_path)
+            new_storage_path = updated_storage_path
             file.version = next_version
             file.storage_path = new_storage_path
-            file.content_index = build_search_document(new_storage_path, file.name, version.mime_type, file.type)
+
+    # Build the content index once using the final storage path (after any retries).
+    file.content_index = build_search_document(new_storage_path, file.name, version.mime_type, file.type)
 
     current_user.storage_used += version.size
     activity = ActivityLog(
