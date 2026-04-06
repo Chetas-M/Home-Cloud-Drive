@@ -225,7 +225,11 @@ async def ensure_base_version(file: FileModel, db: AsyncSession, owner_id: str) 
     """Create an initial version entry if none exists (for legacy rows)."""
     if file.type == "folder":
         return
-    if file.versions:
+
+    existing_version = await db.execute(
+        select(FileVersion.id).where(FileVersion.file_id == file.id).limit(1)
+    )
+    if existing_version.scalar() is not None:
         return
 
     file.version = file.version or 1
