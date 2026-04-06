@@ -954,8 +954,8 @@ async def upload_new_version(
         thumb_dir = os.path.join(user_storage_path, "thumbnails")
         thumb_path = generate_thumbnail(storage_filepath, thumb_dir, f"{file.id}-v{next_version}")
 
-    # Clean up previous thumbnail if replaced
-    if file.thumbnail_path and thumb_path and file.thumbnail_path != thumb_path and os.path.exists(file.thumbnail_path):
+    # Clean up previous thumbnail whenever the stored path changes, including removal
+    if file.thumbnail_path and file.thumbnail_path != thumb_path and os.path.exists(file.thumbnail_path):
         os.remove(file.thumbnail_path)
 
     now = datetime.now(timezone.utc)
