@@ -1387,10 +1387,9 @@ async def update_file(
         activity = ActivityLog(
             user_id=current_user.id,
             action="rename",
-            file_name=f"{old_name} → {update.name}",
+            file_name=f"{old_name} -> {safe_name}",
         )
         db.add(activity)
-        activity.file_name = f"{old_name} -> {safe_name}"
 
     if update.path is not None:
         file.path = serialize_path(update.path)
