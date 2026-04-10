@@ -115,6 +115,7 @@ class ChunkedUploadInitRequest(BaseModel):
     filename: str
     total_size: int = Field(..., ge=0)
     path: List[str] = Field(default_factory=list)
+    mime_type: Optional[str] = None
 
 
 class ChunkedUploadInitResponse(BaseModel):
@@ -128,6 +129,19 @@ class ChunkedUploadCompleteRequest(BaseModel):
     total_size: int = Field(..., ge=0)
     path: List[str] = Field(default_factory=list)
     mime_type: Optional[str] = None
+
+
+class ChunkedUploadStatusResponse(BaseModel):
+    upload_id: str
+    filename: Optional[str] = None
+    path: List[str] = Field(default_factory=list)
+    mime_type: Optional[str] = None
+    total_size: int
+    chunk_size: int
+    expected_chunks: int
+    uploaded_chunks: List[int] = Field(default_factory=list)
+    uploaded_bytes: int
+    next_chunk_index: int
 
 
 class FileResponse(BaseModel):

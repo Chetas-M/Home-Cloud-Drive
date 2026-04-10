@@ -21,14 +21,16 @@ import logging
 from app.database import get_db
 from app.limiter import limiter
 from app.models import User, File as FileModel, ActivityLog, FileVersion
-from app.schemas import FileResponse as FileResponseSchema, FileUpdate, FileMoveRequest, SearchResult, FileVersionResponse
 from app.schemas import (
-    FileResponse as FileResponseSchema, 
-    FileUpdate, 
+    FileResponse as FileResponseSchema,
+    FileUpdate,
     FileMoveRequest,
+    SearchResult,
+    FileVersionResponse,
     ChunkedUploadInitRequest,
     ChunkedUploadInitResponse,
-    ChunkedUploadCompleteRequest
+    ChunkedUploadCompleteRequest,
+    ChunkedUploadStatusResponse,
 )
 from app.auth import get_current_user
 from app.config import get_settings
@@ -193,12 +195,26 @@ def get_expected_chunk_size(total_size: int, chunk_size: int, chunk_index: int) 
     return chunk_size
 
 
-async def write_upload_metadata(temp_dir: str, total_size: int, chunk_size: int) -> None:
+async def write_upload_metadata(
+    temp_dir: str,
+    total_size: int,
+    chunk_size: int,
+    filename: Optional[str] = None,
+    path: Optional[List[str]] = None,
+    mime_type: Optional[str] = None,
+) -> None:
     metadata = {
         "total_size": total_size,
         "chunk_size": chunk_size,
         "expected_chunks": get_expected_chunk_count(total_size, chunk_size),
     }
+    if filename is not None:
+        metadata["filename"] = filename
+    if path is not None:
+        metadata["path"] = path
+    if mime_type is not None:
+        metadata["mime_type"] = mime_type
+
     async with aiofiles.open(get_upload_metadata_path(temp_dir), "w", encoding="utf-8") as handle:
         await handle.write(json.dumps(metadata, separators=(",", ":")))
 
@@ -224,11 +240,71 @@ async def read_upload_metadata(temp_dir: str) -> dict:
     if total_size < 0 or chunk_size <= 0 or expected_chunks != get_expected_chunk_count(total_size, chunk_size):
         raise HTTPException(status_code=400, detail="Upload session metadata is invalid")
 
+    raw_path = metadata.get("path")
+    if isinstance(raw_path, str):
+        try:
+            raw_path = json.loads(raw_path)
+        except Exception:
+            raw_path = []
+    if raw_path is not None and not isinstance(raw_path, list):
+        raw_path = []
+
     return {
         "total_size": total_size,
         "chunk_size": chunk_size,
         "expected_chunks": expected_chunks,
+        "filename": metadata.get("filename"),
+        "path": raw_path,
+        "mime_type": metadata.get("mime_type"),
     }
+
+
+def _get_uploaded_bytes(temp_dir: str) -> int:
+    uploaded_bytes = 0
+    for name in os.listdir(temp_dir):
+        if not name.startswith("chunk_"):
+            continue
+        try:
+            uploaded_bytes += os.path.getsize(os.path.join(temp_dir, name))
+        except OSError:
+            continue
+    return uploaded_bytes
+
+
+def get_uploaded_chunks(temp_dir: str, metadata: dict) -> tuple[list[int], int]:
+    uploaded_chunks: list[int] = []
+    uploaded_bytes = 0
+    for name in os.listdir(temp_dir):
+        if not name.startswith("chunk_"):
+            continue
+        try:
+            chunk_index = int(name.split("_", 1)[1])
+        except (ValueError, IndexError):
+            continue
+
+        if chunk_index < 0 or chunk_index >= metadata["expected_chunks"]:
+            continue
+
+        chunk_path = os.path.join(temp_dir, name)
+        try:
+            chunk_size = os.path.getsize(chunk_path)
+        except OSError:
+            continue
+
+        expected_size = get_expected_chunk_size(
+            metadata["total_size"],
+            metadata["chunk_size"],
+            chunk_index,
+        )
+        if chunk_size != expected_size:
+            continue
+
+        uploaded_chunks.append(chunk_index)
+        uploaded_bytes += chunk_size
+
+    uploaded_chunks = sorted(set(uploaded_chunks))
+    uploaded_bytes = min(uploaded_bytes, metadata["total_size"])
+    return uploaded_chunks, uploaded_bytes
 
 
 async def get_next_version_number(db: AsyncSession, file_id: str) -> int:
@@ -563,7 +639,15 @@ async def init_chunked_upload(
     upload_id = str(uuid.uuid4())
     temp_dir = get_upload_temp_dir(current_user.id, upload_id)
     os.makedirs(temp_dir, exist_ok=True)
-    await write_upload_metadata(temp_dir, init_req.total_size, RESUMABLE_CHUNK_SIZE)
+    safe_filename = sanitize_filename(init_req.filename)
+    await write_upload_metadata(
+        temp_dir,
+        init_req.total_size,
+        RESUMABLE_CHUNK_SIZE,
+        filename=safe_filename,
+        path=init_req.path,
+        mime_type=init_req.mime_type,
+    )
 
     # Return the upload_id and standard chunk size (e.g. 5 MB)
     return ChunkedUploadInitResponse(
@@ -595,6 +679,21 @@ async def upload_chunk(
         chunk_index,
     )
     chunk_filepath = os.path.join(temp_dir, f"chunk_{chunk_index}")
+
+    if os.path.exists(chunk_filepath):
+        try:
+            existing_size = os.path.getsize(chunk_filepath)
+        except OSError:
+            existing_size = None
+        if existing_size is not None and existing_size == expected_chunk_size:
+            uploaded_bytes = _get_uploaded_bytes(temp_dir)
+            if uploaded_bytes > metadata["total_size"]:
+                raise HTTPException(status_code=400, detail="Uploaded chunks exceed declared file size")
+            return {"status": "ok", "message": f"Chunk {chunk_index} already received"}
+        try:
+            os.remove(chunk_filepath)
+        except OSError:
+            pass
     
     try:
         bytes_written = 0
@@ -616,17 +715,49 @@ async def upload_chunk(
             os.remove(chunk_filepath)
         raise HTTPException(status_code=500, detail=f"Failed to save chunk: {e}")
 
-    uploaded_bytes = 0
-    for name in os.listdir(temp_dir):
-        if not name.startswith("chunk_"):
-            continue
-        uploaded_bytes += os.path.getsize(os.path.join(temp_dir, name))
+    uploaded_bytes = _get_uploaded_bytes(temp_dir)
     if uploaded_bytes > metadata["total_size"]:
         if os.path.exists(chunk_filepath):
             os.remove(chunk_filepath)
         raise HTTPException(status_code=400, detail="Uploaded chunks exceed declared file size")
 
     return {"status": "ok", "message": f"Chunk {chunk_index} received"}
+
+
+@router.get("/upload/{upload_id}/status", response_model=ChunkedUploadStatusResponse)
+@limiter.limit("120/minute")
+async def get_chunked_upload_status(
+    request: Request,
+    upload_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    """Return the status of a resumable upload, including uploaded chunks."""
+    upload_id = validate_upload_id(upload_id)
+    temp_dir = get_upload_temp_dir(current_user.id, upload_id)
+
+    if not os.path.exists(temp_dir):
+        raise HTTPException(status_code=404, detail="Upload session not found or expired")
+
+    metadata = await read_upload_metadata(temp_dir)
+    uploaded_chunks, uploaded_bytes = get_uploaded_chunks(temp_dir, metadata)
+    next_chunk_index = metadata["expected_chunks"]
+    for idx in range(metadata["expected_chunks"]):
+        if idx not in uploaded_chunks:
+            next_chunk_index = idx
+            break
+
+    return ChunkedUploadStatusResponse(
+        upload_id=upload_id,
+        filename=metadata.get("filename"),
+        path=metadata.get("path") or [],
+        mime_type=metadata.get("mime_type"),
+        total_size=metadata["total_size"],
+        chunk_size=metadata["chunk_size"],
+        expected_chunks=metadata["expected_chunks"],
+        uploaded_chunks=uploaded_chunks,
+        uploaded_bytes=uploaded_bytes,
+        next_chunk_index=next_chunk_index,
+    )
 
 
 @router.post("/upload/complete", response_model=FileResponseSchema, status_code=status.HTTP_201_CREATED)
@@ -648,10 +779,18 @@ async def complete_chunked_upload(
     if complete_req.total_size != metadata["total_size"]:
         raise HTTPException(status_code=400, detail="Upload metadata does not match declared file size")
 
+    safe_filename = sanitize_filename(complete_req.filename)
+    if metadata.get("filename") and sanitize_filename(str(metadata["filename"])) != safe_filename:
+        raise HTTPException(status_code=400, detail="Upload metadata does not match filename")
+
+    stored_path = metadata.get("path")
+    if stored_path is not None and serialize_path(stored_path) != serialize_path(complete_req.path):
+        raise HTTPException(status_code=400, detail="Upload metadata does not match target path")
+
+    target_path = stored_path if stored_path is not None else complete_req.path
     user_storage_path = os.path.join(settings.storage_path, current_user.id)
     os.makedirs(user_storage_path, exist_ok=True)
 
-    safe_filename = sanitize_filename(complete_req.filename)
     file_id = str(uuid.uuid4())
     ext = safe_filename.split('.')[-1] if '.' in safe_filename else ''
     storage_filename = f"{file_id}.{ext}" if ext else file_id
@@ -731,7 +870,7 @@ async def complete_chunked_upload(
         )
 
     # Guess mime type if not provided
-    mime_type = complete_req.mime_type or mimetypes.guess_type(safe_filename)[0]
+    mime_type = complete_req.mime_type or metadata.get("mime_type") or mimetypes.guess_type(safe_filename)[0]
 
     # Generate thumbnail
     thumb_path = None
@@ -747,7 +886,7 @@ async def complete_chunked_upload(
         type=get_file_type(safe_filename, mime_type),
         mime_type=mime_type,
         size=assembled_size,
-        path=normalize_path(serialize_path(complete_req.path)),
+        path=normalize_path(serialize_path(target_path)),
         storage_path=final_storage_filepath,
         thumbnail_path=thumb_path,
         owner_id=current_user.id,
