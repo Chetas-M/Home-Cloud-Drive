@@ -9,6 +9,27 @@ const LOCAL_API_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
 const API_BASE_URL = LOCAL_API_HOSTS.has(window.location.hostname)
     ? 'http://localhost:8000/api'
     : '/api';
+const RESUMABLE_UPLOAD_KEY = 'hcd.resumableUploads';
+
+function loadResumableSessions() {
+    try {
+        return JSON.parse(localStorage.getItem(RESUMABLE_UPLOAD_KEY)) || {};
+    } catch (err) {
+        return {};
+    }
+}
+
+function persistResumableSessions(sessions) {
+    try {
+        localStorage.setItem(RESUMABLE_UPLOAD_KEY, JSON.stringify(sessions));
+    } catch (err) {
+        // Ignore storage quota errors; resumable uploads can still proceed without persistence.
+    }
+}
+
+function buildUploadFingerprint(file, path) {
+    return `${file.name}|${file.size}|${file.lastModified || 0}|${JSON.stringify(path)}`;
+}
 
 class ApiService {
     constructor() {
@@ -224,6 +245,10 @@ class ApiService {
         });
     }
 
+    async getUploadStatus(uploadId) {
+        return this.request(`/files/upload/${uploadId}/status`);
+    }
+
     /**
      * Upload a single file using chunked resumable upload with real-time progress tracking.
      * @param {File} file - The file to upload
@@ -236,26 +261,97 @@ class ApiService {
         let currentXhr = null;
 
         const promise = new Promise(async (resolve, reject) => {
-            try {
-                // 1. Initialize Upload
-                const initRes = await this.request('/files/upload/init', {
-                    method: 'POST',
-                    body: JSON.stringify({
-                        filename: file.name,
-                        total_size: file.size,
-                        path: path,
-                    }),
+            const sessions = loadResumableSessions();
+            const fingerprint = buildUploadFingerprint(file, path);
+
+            const updateSession = (data) => {
+                sessions[fingerprint] = { ...(sessions[fingerprint] || {}), ...data };
+                persistResumableSessions(sessions);
+            };
+
+            const clearSession = () => {
+                delete sessions[fingerprint];
+                persistResumableSessions(sessions);
+            };
+
+            const emitProgress = (loaded, avgSpeed = 0) => {
+                const total = file.size;
+                const safeLoaded = Math.min(loaded, total);
+                const percent = total > 0 ? Math.round((safeLoaded / total) * 100) : 100;
+                const remaining = Math.max(total - safeLoaded, 0);
+                const eta = avgSpeed > 0 ? Math.ceil(remaining / avgSpeed) : 0;
+
+                onProgress?.({
+                    loaded: safeLoaded,
+                    total,
+                    percent,
+                    speed: avgSpeed,
+                    eta,
                 });
+            };
+
+            try {
+                let status = null;
+
+                if (sessions[fingerprint]?.upload_id) {
+                    try {
+                        const candidate = await this.getUploadStatus(sessions[fingerprint].upload_id);
+                        const candidatePath = Array.isArray(candidate.path) ? candidate.path : [];
+                        const pathMatches =
+                            candidate.path === undefined ||
+                            candidatePath.length === 0 ||
+                            JSON.stringify(candidatePath) === JSON.stringify(path || []);
+                        if (candidate.total_size === file.size && pathMatches) {
+                            status = candidate;
+                        } else {
+                            clearSession();
+                        }
+                    } catch (err) {
+                        clearSession();
+                    }
+                }
 
                 if (isAborted) throw new Error('Upload cancelled');
 
-                const { upload_id, chunk_size } = initRes;
+                if (!status) {
+                    const initPayload = {
+                        filename: file.name,
+                        total_size: file.size,
+                        path: path,
+                    };
+                    if (file.type) {
+                        initPayload.mime_type = file.type;
+                    }
+
+                    const initRes = await this.request('/files/upload/init', {
+                        method: 'POST',
+                        body: JSON.stringify(initPayload),
+                    });
+
+                    status = {
+                        upload_id: initRes.upload_id,
+                        chunk_size: initRes.chunk_size,
+                        uploaded_chunks: [],
+                        uploaded_bytes: 0,
+                        total_size: file.size,
+                        path,
+                    };
+                    updateSession({
+                        upload_id: initRes.upload_id,
+                        path,
+                        filename: file.name,
+                    });
+                }
+
+                const { upload_id, chunk_size } = status;
                 const totalChunks = Math.ceil(file.size / chunk_size) || 1; // Handle 0-byte files
 
-                let loadedBytes = 0;
-                let lastLoaded = 0;
+                let loadedBytes = Math.min(status.uploaded_bytes || 0, file.size);
+                let lastLoaded = loadedBytes;
                 let lastTime = Date.now();
                 let speedSamples = [];
+                const uploadedChunks = new Set(status.uploaded_chunks || []);
+                emitProgress(loadedBytes, 0);
 
                 // 2. Upload Chunks sequentially
                 for (let i = 0; i < totalChunks; i++) {
@@ -264,6 +360,14 @@ class ApiService {
                     const start = i * chunk_size;
                     const end = Math.min(start + chunk_size, file.size);
                     const chunk = file.slice(start, end);
+                    const chunkLength = end - start;
+
+                    if (uploadedChunks.has(i)) {
+                        // Bytes for this chunk are already reflected in the initial loadedBytes
+                        // (from status.uploaded_bytes). Do not add them again.
+                        emitProgress(loadedBytes, 0);
+                        continue;
+                    }
 
                     let chunkSuccess = false;
                     let retries = 0;
@@ -293,7 +397,7 @@ class ApiService {
                                     const elapsed = (now - lastTime) / 1000;
 
                                     if (elapsed >= 0.3) {
-                                        const bytesPerSec = (currentLoaded - lastLoaded) / elapsed;
+                                        const bytesPerSec = (currentLoaded - lastLoaded) / Math.max(elapsed, 0.001);
                                         speedSamples.push(bytesPerSec);
                                         if (speedSamples.length > 5) speedSamples.shift();
                                         lastLoaded = currentLoaded;
@@ -350,7 +454,20 @@ class ApiService {
                             });
                             
                             chunkSuccess = true;
-                            loadedBytes += (end - start);
+                            loadedBytes += chunkLength;
+                            uploadedChunks.add(i);
+                            // Only persist the upload_id, path, and filename.
+                            // uploaded_chunks/uploaded_bytes are fetched from the server on resume,
+                            // so storing the full set would waste localStorage space needlessly.
+                            updateSession({
+                                upload_id,
+                                path,
+                                filename: file.name,
+                            });
+                            const avgSpeed = speedSamples.length > 0
+                                ? speedSamples.reduce((a, b) => a + b, 0) / speedSamples.length
+                                : 0;
+                            emitProgress(loadedBytes, avgSpeed);
                         } catch (err) {
                             if (err.message === 'Upload cancelled') throw err;
                             retries++;
@@ -377,6 +494,7 @@ class ApiService {
                     }),
                 });
 
+                clearSession();
                 resolve(completeRes);
 
             } catch (err) {

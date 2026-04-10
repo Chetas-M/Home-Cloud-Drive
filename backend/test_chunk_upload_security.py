@@ -12,6 +12,7 @@ os.environ.setdefault("SECRET_KEY", "0123456789abcdef0123456789abcdef")
 
 from app.routers.files import (  # noqa: E402
     complete_chunked_upload,
+    get_chunked_upload_status,
     get_upload_temp_dir,
     upload_chunk,
     write_upload_metadata,
@@ -80,6 +81,38 @@ class ChunkUploadSecurityTests(unittest.IsolatedAsyncioTestCase):
             files_router.settings.storage_path = original_storage_path
             shutil.rmtree(tempdir, ignore_errors=True)
 
+    async def test_upload_chunk_is_idempotent_for_existing_chunk(self):
+        tempdir = os.path.join(TEST_TEMP_ROOT, f"storage-{uuid.uuid4()}")
+        os.makedirs(tempdir, exist_ok=True)
+        original_storage_path = files_router.settings.storage_path
+        files_router.settings.storage_path = tempdir
+        try:
+            user = SimpleNamespace(id="user-1", storage_quota=1024, storage_used=0)
+            upload_id = str(uuid.uuid4())
+            session_dir = get_upload_temp_dir(user.id, upload_id)
+            os.makedirs(session_dir, exist_ok=True)
+            await write_upload_metadata(session_dir, total_size=4, chunk_size=2)
+
+            chunk_path = os.path.join(session_dir, "chunk_0")
+            with open(chunk_path, "wb") as handle:
+                handle.write(b"ab")
+
+            upload = UploadFile(filename="chunk.bin", file=io.BytesIO(b"zz"))
+            response = await upload_chunk(
+                request=make_request(),
+                upload_id=upload_id,
+                chunk_index=0,
+                file=upload,
+                current_user=user,
+            )
+
+            self.assertEqual(response["status"], "ok")
+            with open(chunk_path, "rb") as handle:
+                self.assertEqual(handle.read(), b"ab")
+        finally:
+            files_router.settings.storage_path = original_storage_path
+            shutil.rmtree(tempdir, ignore_errors=True)
+
     async def test_complete_rejects_missing_chunks(self):
         tempdir = os.path.join(TEST_TEMP_ROOT, f"storage-{uuid.uuid4()}")
         os.makedirs(tempdir, exist_ok=True)
@@ -113,6 +146,48 @@ class ChunkUploadSecurityTests(unittest.IsolatedAsyncioTestCase):
 
             self.assertEqual(ctx.exception.status_code, 400)
             self.assertEqual(ctx.exception.detail, "Upload is incomplete")
+        finally:
+            files_router.settings.storage_path = original_storage_path
+            shutil.rmtree(tempdir, ignore_errors=True)
+
+    async def test_status_reports_uploaded_chunks_and_progress(self):
+        tempdir = os.path.join(TEST_TEMP_ROOT, f"storage-{uuid.uuid4()}")
+        os.makedirs(tempdir, exist_ok=True)
+        original_storage_path = files_router.settings.storage_path
+        files_router.settings.storage_path = tempdir
+        try:
+            user = SimpleNamespace(id="user-1", storage_quota=1024, storage_used=0)
+            upload_id = str(uuid.uuid4())
+            session_dir = get_upload_temp_dir(user.id, upload_id)
+            os.makedirs(session_dir, exist_ok=True)
+            await write_upload_metadata(
+                session_dir,
+                total_size=5,
+                chunk_size=2,
+                filename="demo.bin",
+                path=["folder"],
+            )
+
+            with open(os.path.join(session_dir, "chunk_0"), "wb") as handle:
+                handle.write(b"ab")
+            with open(os.path.join(session_dir, "chunk_2"), "wb") as handle:
+                handle.write(b"x")
+
+            status = await get_chunked_upload_status(
+                request=make_request(),
+                upload_id=upload_id,
+                current_user=user,
+            )
+
+            self.assertEqual(status.upload_id, upload_id)
+            self.assertEqual(status.total_size, 5)
+            self.assertEqual(status.chunk_size, 2)
+            self.assertEqual(status.expected_chunks, 3)
+            self.assertEqual(status.uploaded_chunks, [0, 2])
+            self.assertEqual(status.uploaded_bytes, 3)
+            self.assertEqual(status.next_chunk_index, 1)
+            self.assertEqual(status.filename, "demo.bin")
+            self.assertEqual(status.path, ["folder"])
         finally:
             files_router.settings.storage_path = original_storage_path
             shutil.rmtree(tempdir, ignore_errors=True)
