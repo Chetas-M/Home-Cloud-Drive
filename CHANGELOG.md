@@ -1,5 +1,13 @@
 # Home Cloud Drive Development Report
 
+## Latest Updates (Apr 11, 2026)
+
+### Documentation refresh
+- Updated the root README with clearer `SECRET_KEY` requirements, local-development copy commands, Compose CORS behavior, and deployment notes for the loopback-only health check.
+- Expanded the backend README to document `CORS_ORIGINS` / `CORS_ORIGINS_STR`, startup validation of `SECRET_KEY`, Windows versus Linux search-index backfill behavior, and the private-by-default Docker API exposure model.
+
+---
+
 ## Latest Updates (Apr 8, 2026)
 
 ### File version history and storage visibility

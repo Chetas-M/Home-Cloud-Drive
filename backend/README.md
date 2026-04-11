@@ -49,6 +49,7 @@ uvicorn app.main:app --reload --port 8000
 5. Open the API at `http://localhost:8000`.
 
 The current app configuration disables `/docs`, `/redoc`, and `/openapi.json`, so use the route tables below or inspect the router modules directly during local development.
+The `/health` endpoint is loopback-only, so it works for the Docker health check and local host requests but intentionally returns `404` for non-local clients.
 
 ### Docker deployment
 
@@ -113,6 +114,7 @@ Environment variables in `backend/.env`:
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | `1440` | Login token lifetime |
 | `PASSWORD_RESET_EXPIRE_MINUTES` | `30` | Password reset token lifetime |
 | `TWO_FACTOR_TEMP_TOKEN_EXPIRE_MINUTES` | `10` | Temporary token lifetime for completing a 2FA login |
+| `CORS_ORIGINS` / `CORS_ORIGINS_STR` | `http://localhost:5173,http://localhost:3000,http://localhost` | Comma-separated allowed frontend origins |
 | `ALLOW_REGISTRATION` | `false` | Enable or disable public signups |
 | `SESSION_LAST_SEEN_UPDATE_INTERVAL_SECONDS` | `60` | Minimum interval between `last_seen_at` writes for a session |
 | `TRUST_PROXY_HEADERS` | `false` | Use forwarded proxy headers when resolving client IP addresses |
@@ -125,6 +127,7 @@ Environment variables in `backend/.env`:
 
 Password reset email delivery is enabled only when both `RESEND_API_KEY` and `RESEND_FROM_EMAIL` are set.
 If `PASSWORD_RESET_URL` is blank, the backend tries to build a reset link from a trusted request origin or the first configured CORS origin.
+`SECRET_KEY` is required and validated at startup; placeholder values and keys shorter than 32 characters are rejected before the app finishes booting.
 
 ## Password reset behavior
 
@@ -139,6 +142,7 @@ If `PASSWORD_RESET_URL` is blank, the backend tries to build a reset link from a
 - Uploading or restoring a version creates a new latest version instead of mutating the old one.
 - The storage API adds a `versions` breakdown bucket for archived versions so quota usage reflects historical copies.
 - Startup runs lightweight schema migrations, background search-index backfill, and trash cleanup for items older than `TRASH_AUTO_DELETE_DAYS`.
+- On Linux, the search-index backfill uses a non-blocking file lock so only one worker performs the startup backfill at a time. On Windows, the backfill still runs but without that multi-worker file lock.
 
 ## Project structure
 
@@ -163,3 +167,4 @@ backend/
 
 - The backend uses background tasks plus thread offloading for blocking email sends.
 - Root deployment settings in [`../docker-compose.yml`](../docker-compose.yml) must also include the password reset, email, and storage-limit variables when running in containers.
+- Docker Compose keeps the API private by default: the frontend is published on port `3001`, while the backend stays on the internal network and is checked through `http://localhost:8000/health` from inside the container.

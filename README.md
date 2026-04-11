@@ -111,6 +111,9 @@ Set at least these values in `.env`:
 - `STORAGE_PATH` (host path for uploaded files)
 - `DATA_PATH` (host path for SQLite data)
 
+`SECRET_KEY` must be a real non-placeholder value at least 32 characters long.
+The backend rejects placeholder-style values such as `CHANGE_ME`, `changeme`, or other obvious defaults during startup.
+
 ### 2) Build and start
 
 ```bash
@@ -122,6 +125,7 @@ docker-compose up -d --build
 - Frontend: `http://localhost:3001`
 
 > The backend API is intentionally not published directly by default in `docker-compose.yml`.
+> The backend `/health` endpoint is only reachable from inside the backend container or from loopback on the host that runs the API.
 
 ## Local development
 
@@ -133,7 +137,8 @@ python -m venv venv
 source venv/bin/activate   # Linux/macOS
 # .\venv\Scripts\activate  # Windows
 pip install -r requirements.txt
-cp .env.example .env
+cp .env.example .env       # Linux/macOS
+# copy .env.example .env   # Windows
 uvicorn app.main:app --reload --port 8000
 ```
 
@@ -149,6 +154,10 @@ npm run dev
 ```
 
 Frontend URL (default): `http://localhost:5173`
+
+For local frontend development, make sure the backend allows your frontend origin.
+If you keep the backend defaults, `http://localhost:5173`, `http://localhost:3000`, and `http://localhost` are already allowed.
+If you override `CORS_ORIGINS`, include every frontend origin you actively use, such as `http://localhost:5173` for Vite or `http://localhost:3001` for the Docker-served UI.
 
 ## Configuration
 
@@ -178,6 +187,7 @@ For production deployments, set `PASSWORD_RESET_URL` to your public frontend res
 Use the full frontend reset route, for example `https://cloud.example.com/reset-password`, because the backend appends the `reset_token` query parameter automatically.
 If `PASSWORD_RESET_URL` is omitted, the backend falls back to a trusted origin from `CORS_ORIGINS` when it can build a safe reset link.
 If you deploy with the root [`docker-compose.yml`](./docker-compose.yml), the root `.env` is also where container-level overrides such as `MAX_FILE_SIZE_BYTES` and `TRASH_AUTO_DELETE_DAYS` should be set.
+The Docker deployment passes `CORS_ORIGINS` into the backend as `CORS_ORIGINS_STR`, so the root `.env` remains the single place to manage allowed frontend origins for Compose-based deployments.
 
 See `backend/.env.example` for backend-specific defaults.
 
@@ -215,6 +225,7 @@ Notable file routes also include version history endpoints for listing, uploadin
 - Search indexing for older files is backfilled in the background after startup.
 - Trashed files older than `TRASH_AUTO_DELETE_DAYS` are permanently deleted during backend startup.
 - The FastAPI OpenAPI/docs endpoints are disabled in the shipped backend app configuration.
+- The health endpoint at `/health` is intentionally loopback-only and is mainly used by the Docker health check.
 
 ## Security notes
 
