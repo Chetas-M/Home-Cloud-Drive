@@ -12,6 +12,7 @@ from app.database import get_db
 from app.models import User, File as FileModel, ActivityLog, ShareLink
 from app.schemas import FolderCreate, FileResponse as FileResponseSchema
 from app.auth import get_current_user
+from app.tree_validation import normalize_tree_path, sanitize_tree_name
 
 router = APIRouter(prefix="/api/folders", tags=["Folders"])
 
@@ -42,6 +43,27 @@ def get_serialized_path_prefixes(path: List[str]) -> List[str]:
     return [f"{variant[:-1]}%" for variant in get_serialized_path_variants(path)]
 
 
+async def ensure_folder_path_exists(db: AsyncSession, user_id: str, path: List[str]) -> None:
+    if not path:
+        return
+
+    parent_path = path[:-1]
+    folder_name = path[-1]
+    result = await db.execute(
+        select(FileModel.id).where(
+            and_(
+                FileModel.owner_id == user_id,
+                FileModel.type == "folder",
+                FileModel.name == folder_name,
+                FileModel.path.in_(get_serialized_path_variants(parent_path)),
+                FileModel.is_trashed == False,
+            )
+        )
+    )
+    if result.scalar_one_or_none() is None:
+        raise HTTPException(status_code=400, detail="Parent folder does not exist")
+
+
 @router.post("", response_model=FileResponseSchema, status_code=status.HTTP_201_CREATED)
 async def create_folder(
     folder: FolderCreate,
@@ -49,13 +71,17 @@ async def create_folder(
     db: AsyncSession = Depends(get_db)
 ):
     """Create a new folder"""
+    normalized_name = sanitize_tree_name(folder.name)
+    normalized_path = normalize_tree_path(folder.path)
+    await ensure_folder_path_exists(db, current_user.id, normalized_path)
+
     # Check if folder with same name exists in same path
     existing = await db.execute(
         select(FileModel).where(
             and_(
                 FileModel.owner_id == current_user.id,
-                FileModel.name == folder.name,
-                FileModel.path.in_(get_serialized_path_variants(folder.path)),
+                FileModel.name == normalized_name,
+                FileModel.path.in_(get_serialized_path_variants(normalized_path)),
                 FileModel.type == "folder",
                 FileModel.is_trashed == False,
             )
@@ -69,10 +95,10 @@ async def create_folder(
         )
     
     new_folder = FileModel(
-        name=folder.name,
+        name=normalized_name,
         type="folder",
         size=0,
-        path=serialize_path(folder.path),
+        path=serialize_path(normalized_path),
         owner_id=current_user.id,
         version=1,
     )
@@ -83,7 +109,7 @@ async def create_folder(
     activity = ActivityLog(
         user_id=current_user.id,
         action="create_folder",
-        file_name=folder.name,
+        file_name=normalized_name,
     )
     db.add(activity)
     

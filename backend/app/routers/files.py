@@ -37,6 +37,7 @@ from app.config import get_settings
 from app.db_utils import LIKE_ESCAPE_CHAR, escape_like_literal
 from app.search_index import build_match_context, build_search_document
 from app.thumbnails import generate_thumbnail, can_generate_thumbnail
+from app.tree_validation import normalize_tree_path, sanitize_tree_name
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -73,20 +74,7 @@ def sanitize_filename(filename: Optional[str]) -> str:
 
 def sanitize_rename_target(filename: Optional[str]) -> str:
     """Normalize rename input and reject values that collapse to an empty name."""
-    safe_name = sanitize_filename(filename)
-    if safe_name != "unnamed":
-        return safe_name
-
-    raw_name = (filename or "").replace("\x00", "")
-    for char in raw_name:
-        if char in {"/", "\\", "\r", "\n"}:
-            return safe_name
-        if unicodedata.category(char).startswith("C"):
-            continue
-        if char not in {" ", "."}:
-            return safe_name
-
-    raise HTTPException(status_code=400, detail="File/folder name is invalid")
+    return sanitize_tree_name(filename)
 
 
 def build_content_disposition(disposition: str, filename: str) -> str:
@@ -309,6 +297,27 @@ def get_uploaded_chunks(temp_dir: str, metadata: dict) -> tuple[list[int], int]:
     uploaded_chunks = sorted(set(uploaded_chunks))
     uploaded_bytes = min(uploaded_bytes, metadata["total_size"])
     return uploaded_chunks, uploaded_bytes
+
+
+async def ensure_folder_path_exists(db: AsyncSession, user_id: str, path: List[str]) -> None:
+    if not path:
+        return
+
+    parent_path = path[:-1]
+    folder_name = path[-1]
+    result = await db.execute(
+        select(FileModel.id).where(
+            and_(
+                FileModel.owner_id == user_id,
+                FileModel.type == "folder",
+                FileModel.name == folder_name,
+                FileModel.path.in_(get_serialized_path_variants(parent_path)),
+                FileModel.is_trashed == False,
+            )
+        )
+    )
+    if result.scalar_one_or_none() is None:
+        raise HTTPException(status_code=400, detail="Destination folder does not exist")
 
 
 async def get_next_version_number(db: AsyncSession, file_id: str) -> int:
@@ -1523,7 +1532,10 @@ async def update_file(
     
     if not file:
         raise HTTPException(status_code=404, detail="File not found")
-    
+
+    old_path = parse_path(file.path)
+    old_full_path = old_path + [file.name]
+
     if update.name is not None:
         safe_name = sanitize_rename_target(update.name)
         old_name = file.name
@@ -1536,7 +1548,13 @@ async def update_file(
         db.add(activity)
 
     if update.path is not None:
-        file.path = serialize_path(update.path)
+        normalized_path = normalize_tree_path(update.path)
+        await ensure_folder_path_exists(db, current_user.id, normalized_path)
+
+        if file.type == "folder" and normalized_path[:len(old_full_path)] == old_full_path:
+            raise HTTPException(status_code=400, detail="Cannot move a folder into itself")
+
+        file.path = serialize_path(normalized_path)
         activity = ActivityLog(
             user_id=current_user.id,
             action="move",
@@ -1553,6 +1571,24 @@ async def update_file(
                 file_name=file.name,
             )
             db.add(activity)
+
+    if file.type == "folder" and (update.name is not None or update.path is not None):
+        new_full_path = parse_path(file.path) + [file.name]
+        folder_path_prefixes = get_serialized_path_prefixes(old_full_path)
+        children_result = await db.execute(
+            select(FileModel).where(
+                and_(
+                    FileModel.owner_id == current_user.id,
+                    FileModel.id != file.id,
+                    or_(*[FileModel.path.like(prefix) for prefix in folder_path_prefixes]),
+                )
+            )
+        )
+        for child in children_result.scalars().all():
+            child_path = parse_path(child.path)
+            if child_path[:len(old_full_path)] != old_full_path:
+                continue
+            child.path = serialize_path(new_full_path + child_path[len(old_full_path):])
     
     file.updated_at = datetime.now(timezone.utc)
     await db.flush()
