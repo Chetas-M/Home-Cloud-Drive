@@ -38,15 +38,37 @@ Home Cloud Drive lets you upload, organize, preview, share, and manage files wit
 
 ## Architecture
 
-This repository contains a full-stack deployment:
+This repository contains a full-stack personal cloud stack with a browser SPA, a FastAPI API, SQLite metadata storage, and local-disk file storage.
 
-- **Frontend**: React + Vite, served by Nginx in production
-- **Backend**: FastAPI + SQLAlchemy + SQLite
-- **Data lifecycle**: startup migrations, search-index backfill, and automatic trash cleanup
-- **Deployment**: Docker Compose stack with:
-  - backend API service
-  - frontend static site service
-  - optional Cloudflare Tunnel service
+The full architecture diagram and subsystem breakdown live in [`docs/architecture.md`](docs/architecture.md).
+
+```mermaid
+flowchart LR
+    U[User Browser]
+    CF[Cloudflare Tunnel<br/>optional]
+    N[Nginx Frontend Container<br/>serves Vite build + proxies /api]
+    FE[React SPA<br/>src/App.jsx + components]
+    API[FastAPI Backend<br/>routers auth/files/folders/storage/admin/share]
+    AUTH[Auth + Session Layer<br/>JWT, 2FA, password reset]
+    DB[(SQLite<br/>users, files, versions, shares, sessions, activity)]
+    FS[(Local Storage Volume<br/>user files, versions, thumbnails, temp chunks)]
+    BG[Startup / Background Jobs<br/>migrations, search backfill, trash cleanup]
+    MAIL[Resend Email API]
+
+    U -->|HTTPS| CF
+    U -->|LAN / localhost| N
+    CF --> N
+    N -->|serves SPA| FE
+    FE -->|fetch /api + bearer token| API
+    N -->|reverse proxy /api| API
+    API --> AUTH
+    AUTH --> DB
+    API --> DB
+    API --> FS
+    API -->|password reset + login alerts| MAIL
+    BG --> DB
+    BG --> FS
+```
 
 ## Tech stack
 
@@ -253,4 +275,5 @@ docker-compose down
 ## Additional documentation
 
 - Backend service docs: [`backend/README.md`](backend/README.md)
+- Architecture deep dive: [`docs/architecture.md`](docs/architecture.md)
 - Development history: [`CHANGELOG.md`](CHANGELOG.md)
