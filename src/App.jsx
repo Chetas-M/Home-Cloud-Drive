@@ -354,7 +354,9 @@ export default function App() {
             // Parent path = currentPath + all parts except the last
             const parentPath = [...currentPath, ...parts.slice(0, -1)];
             try {
-                await api.createFolder(folderName, parentPath);
+                await api.createFolder(folderName, parentPath, {
+                    sharedFolderId: currentSharedFolder?.shared_folder_id || currentSharedFolder?.id,
+                });
                 createdFolders.add(folderPath);
             } catch (err) {
                 // Folder may already exist — that's OK

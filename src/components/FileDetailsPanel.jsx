@@ -95,7 +95,7 @@ export default function FileDetailsPanel({
                         <span>Download</span>
                     </button>
                 )}
-                {(!file.is_shared || file.can_manage) && (
+                {(!file.is_shared || file.can_share_public) && (
                     <button className="details-action-btn" onClick={() => onStar(file.id)}>
                         {isStarred ? <StarOff size={18} /> : <Star size={18} />}
                         <span>{isStarred ? "Unstar" : "Star"}</span>

@@ -7,6 +7,7 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.auth import get_current_user
 from app.database import get_db
@@ -111,20 +112,18 @@ async def list_folder_access(
     db: AsyncSession = Depends(get_db),
 ):
     await assert_folder_admin_access(db, current_user, folder_id)
+    inviter = aliased(User)
     result = await db.execute(
-        select(SharedFolderAccess, User, User.username)
+        select(SharedFolderAccess, User, inviter.username)
         .join(User, User.id == SharedFolderAccess.user_id)
+        .outerjoin(inviter, inviter.id == SharedFolderAccess.invited_by)
         .where(SharedFolderAccess.folder_id == folder_id)
         .order_by(User.username.asc())
     )
-    responses: list[SharedFolderAccessResponse] = []
-    for access, invited_user, _username in result.all():
-        invited_by = None
-        if access.invited_by:
-            inviter = await db.get(User, access.invited_by)
-            invited_by = inviter.username if inviter else None
-        responses.append(build_access_response(access, invited_user, invited_by))
-    return responses
+    return [
+        build_access_response(access, invited_user, invited_by_username)
+        for access, invited_user, invited_by_username in result.all()
+    ]
 
 
 @router.post("/{folder_id}/access", response_model=SharedFolderAccessResponse, status_code=status.HTTP_201_CREATED)
