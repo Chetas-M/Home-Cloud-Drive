@@ -17,6 +17,7 @@ import StorageChart from "./components/StorageChart";
 import AuthPage from "./components/AuthPage";
 import AdminPanel from "./components/AdminPanel";
 import ShareModal from "./components/ShareModal";
+import SharedFolderModal from "./components/SharedFolderModal";
 import SecurityModal from "./components/SecurityModal";
 import VersionHistoryModal from "./components/VersionHistoryModal";
 import api from "./api";
@@ -29,6 +30,7 @@ export default function App() {
     // Core state
     const [view, setView] = useState("grid");
     const [currentPath, setCurrentPath] = useState([]);
+    const [currentSharedFolder, setCurrentSharedFolder] = useState(null);
     const [files, setFiles] = useState([]);
     const [searchQuery, setSearchQuery] = useState("");
     const [searchResults, setSearchResults] = useState([]);
@@ -106,14 +108,22 @@ export default function App() {
                 setLoading(false);
                 return;
             } else {
-                data = await api.listFiles(currentPath);
+                if (currentSharedFolder) {
+                    data = await api.listFiles(currentPath, { sharedFolderId: currentSharedFolder.shared_folder_id || currentSharedFolder.id });
+                } else {
+                    data = await api.listFiles(currentPath);
+                    if (currentPath.length === 0) {
+                        const sharedFolders = await api.getSharedFolders();
+                        data = [...data, ...sharedFolders];
+                    }
+                }
             }
             setFiles(data.filter(f => !f.is_trashed));
         } catch (err) {
             console.error("Failed to load files:", err);
         }
         setLoading(false);
-    }, [user, currentPath, currentView]);
+    }, [user, currentPath, currentView, currentSharedFolder]);
 
     useEffect(() => {
         loadFiles();
@@ -141,6 +151,7 @@ export default function App() {
             try {
                 const results = await api.searchFiles(trimmedQuery, {
                     starredOnly: currentView === "starred",
+                    sharedFolderId: currentSharedFolder?.shared_folder_id || currentSharedFolder?.id,
                 });
                 if (!cancelled) {
                     setSearchResults(results);
@@ -161,7 +172,7 @@ export default function App() {
             cancelled = true;
             clearTimeout(timeoutId);
         };
-    }, [user, searchQuery, currentView, searchRefreshKey]);
+    }, [user, searchQuery, currentView, searchRefreshKey, currentSharedFolder]);
 
     /* ---------------- LOAD ACTIVITY & STORAGE ---------------- */
     const loadExtra = useCallback(async () => {
@@ -274,7 +285,8 @@ export default function App() {
                                 status: 'uploading',
                             },
                         }));
-                    }
+                    },
+                    { sharedFolderId: currentSharedFolder?.shared_folder_id || currentSharedFolder?.id }
                 );
 
                 uploadAbortRef.current = abort;
@@ -400,7 +412,8 @@ export default function App() {
                                 status: 'uploading',
                             },
                         }));
-                    }
+                    },
+                    { sharedFolderId: currentSharedFolder?.shared_folder_id || currentSharedFolder?.id }
                 );
 
                 uploadAbortRef.current = abort;
@@ -556,7 +569,9 @@ export default function App() {
     /* ---------------- CREATE FOLDER ---------------- */
     const handleCreateFolder = async (name) => {
         try {
-            await api.createFolder(name, currentPath);
+            await api.createFolder(name, currentPath, {
+                sharedFolderId: currentSharedFolder?.shared_folder_id || currentSharedFolder?.id,
+            });
             setSearchRefreshKey((key) => key + 1);
             loadFiles();
         } catch (err) {
@@ -745,6 +760,9 @@ export default function App() {
         setCurrentView(viewId);
         if (viewId === "home") {
             setCurrentPath([]);
+            setCurrentSharedFolder(null);
+        } else {
+            setCurrentSharedFolder(null);
         }
         setSearchQuery("");
         setSearchResults([]);
@@ -758,7 +776,12 @@ export default function App() {
             setSearchQuery("");
             setSearchResults([]);
             setSearchError("");
-            setCurrentPath([...(file.path || []), file.name]);
+            if (file.is_shared_root) {
+                setCurrentSharedFolder(file);
+                setCurrentPath([]);
+            } else {
+                setCurrentPath([...(file.path || []), file.name]);
+            }
             setCurrentView("home");
         }
     };
@@ -774,6 +797,23 @@ export default function App() {
         setSearchResults([]);
         setSearchError("");
         setCurrentPath(path);
+        setCurrentView("home");
+    };
+
+    const handleBreadcrumbNavigate = (path) => {
+        if (!currentSharedFolder) {
+            handleNavigateToPath(path);
+            return;
+        }
+        if (path.length === 0) {
+            setCurrentSharedFolder(null);
+            handleNavigateToPath([]);
+            return;
+        }
+        setSearchQuery("");
+        setSearchResults([]);
+        setSearchError("");
+        setCurrentPath(path.slice(1));
         setCurrentView("home");
     };
 
@@ -860,7 +900,8 @@ export default function App() {
     };
 
     // Show recent section only on home view at root level
-    const showRecentSection = currentView === "home" && currentPath.length === 0 && recentFiles.length > 0 && !isSearchMode;
+    const showRecentSection = currentView === "home" && currentPath.length === 0 && recentFiles.length > 0 && !isSearchMode && !currentSharedFolder;
+    const headerPath = currentSharedFolder ? [currentSharedFolder.name, ...currentPath] : currentPath;
 
     /* ---------------- AUTH LOADING ---------------- */
     if (authLoading) {
@@ -912,7 +953,7 @@ export default function App() {
                 onDrop={handleDrop}
             >
                 <Header
-                    currentPath={currentPath}
+                    currentPath={headerPath}
                     searchQuery={searchQuery}
                     onSearchChange={setSearchQuery}
                     view={view}
@@ -920,7 +961,7 @@ export default function App() {
                     onUpload={handleUpload}
                     onUploadFolder={handleFolderUpload}
                     onNewFolder={() => setShowNewFolderModal(true)}
-                    onNavigateToPath={handleNavigateToPath}
+                    onNavigateToPath={handleBreadcrumbNavigate}
                     sortBy={sortBy}
                     onSortChange={setSortBy}
                     isMultiSelect={isMultiSelect}
@@ -929,7 +970,7 @@ export default function App() {
                         if (isMultiSelect) setSelectedIds(new Set());
                     }}
                     selectedCount={selectedIds.size}
-                    viewTitle={isSearchMode ? "Search Results" : viewTitles[currentView]}
+                    viewTitle={isSearchMode ? "Search Results" : (currentSharedFolder ? `Shared: ${currentSharedFolder.name}` : viewTitles[currentView])}
                     user={user}
                     onLogout={handleLogout}
                     onOpenSecurity={() => setShowSecurityModal(true)}
@@ -1111,10 +1152,17 @@ export default function App() {
 
             {/* Share Modal */}
             {shareFile && (
-                <ShareModal
-                    file={shareFile}
-                    onClose={() => setShareFile(null)}
-                />
+                shareFile.type === "folder" ? (
+                    <SharedFolderModal
+                        folder={shareFile}
+                        onClose={() => setShareFile(null)}
+                    />
+                ) : (
+                    <ShareModal
+                        file={shareFile}
+                        onClose={() => setShareFile(null)}
+                    />
+                )
             )}
 
             {versionFile && (
