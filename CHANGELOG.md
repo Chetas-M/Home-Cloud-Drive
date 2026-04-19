@@ -1,5 +1,14 @@
 # Home Cloud Drive Development Report
 
+## Latest Updates (Apr 19, 2026)
+
+### Documentation refresh
+- Updated the root README with clearer notes for login alert emails, share-link lifecycle, protected-share password handling, and resumable upload temp storage.
+- Expanded the backend README with explicit resumable upload endpoints, share-link behavior, and email-delivery notes that now cover both password resets and login alerts.
+- Refined the architecture guide to document proxy-header trust effects on session/IP reporting, share-link deactivation for trashed files, and the current login-alert delivery flow.
+
+---
+
 ## Latest Updates (Apr 11, 2026)
 
 ### Documentation refresh

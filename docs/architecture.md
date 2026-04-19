@@ -168,7 +168,7 @@ Backend code entry points:
 
 - [backend/app/main.py](/D:/New%20folder/rs/backend/app/main.py): bootstraps FastAPI, applies CORS and SlowAPI middleware, registers routers, exposes loopback-only `/health`, creates directories, initializes the database, runs startup migrations, launches search-index backfill, and cleans up aged trash on startup.
 - [backend/app/auth.py](/D:/New%20folder/rs/backend/app/auth.py): hashes and verifies passwords, signs and validates JWTs, creates password reset and temporary 2FA tokens, validates tracked sessions, throttles `last_seen_at` writes, and enforces the admin guard.
-- [backend/app/routers/auth.py](/D:/New%20folder/rs/backend/app/routers/auth.py): handles registration, login, 2FA setup and verification, session listing and revocation, logout, password change, forgot-password, and reset-password. Recovery behavior includes returning a clear `503` when password-reset email delivery is not configured and revoking sessions when passwords change.
+- [backend/app/routers/auth.py](/D:/New%20folder/rs/backend/app/routers/auth.py): handles registration, login, 2FA setup and verification, session listing and revocation, logout, password change, forgot-password, and reset-password. Recovery behavior includes returning a clear `503` when password-reset email delivery is not configured, revoking sessions when passwords change, and queuing login alert emails when Resend is configured.
 - [backend/app/routers/files.py](/D:/New%20folder/rs/backend/app/routers/files.py): handles directory listing, search, streamed upload, resumable chunk upload, preview, thumbnail serving, version history, rename, move, star, trash, restore, permanent delete, and copy. Recovery behavior includes removing partially written files on failed uploads, rejecting incomplete chunk assemblies, re-checking quota at upload completion, and retrying version-number conflicts up to five times before returning `409`.
 - [backend/app/routers/folders.py](/D:/New%20folder/rs/backend/app/routers/folders.py): creates folders, enforces same-location uniqueness, and recursively trashes folder contents.
 - [backend/app/routers/storage.py](/D:/New%20folder/rs/backend/app/routers/storage.py): reports per-user usage, version-aware storage breakdown, activity history, and empties the current user's trash.
@@ -360,6 +360,7 @@ flowchart TD
 3. Public downloads use `GET /api/share/{token}/download`.
 4. The backend enforces revoked state, expiry, max-download count, optional password, file existence, and path traversal protection before serving the file.
 5. Download-slot consumption is updated atomically with an `UPDATE ... WHERE download_count < max_downloads` pattern in [backend/app/routers/sharing.py](/D:/New%20folder/rs/backend/app/routers/sharing.py).
+6. Trashing a file deactivates its active share links, and later public access returns `410 Gone` instead of serving stale links.
 
 ### Password reset and alerts
 
@@ -368,7 +369,7 @@ flowchart TD
 3. The reset URL is built from explicit `PASSWORD_RESET_URL` or a trusted CORS origin.
 4. Resend delivery is delegated to a background task that offloads blocking I/O to a worker thread.
 5. The frontend handles `/reset-password?reset_token=...` in [src/components/AuthPage.jsx](/D:/New%20folder/rs/src/components/AuthPage.jsx).
-6. Login-alert emails follow the same thread-offloaded delivery pattern when email is configured.
+6. Successful tracked logins can also queue login-alert emails that include the derived device label, resolved client IP, login timestamp, and whether the device/IP combination looks unfamiliar.
 
 ## 6. Security Model
 
@@ -386,6 +387,7 @@ CORS policy:
 - Allowed origins come from `settings.cors_origins`, parsed from `CORS_ORIGINS` or `CORS_ORIGINS_STR` in [backend/app/config.py](/D:/New%20folder/rs/backend/app/config.py).
 - Default origins are `http://localhost:5173`, `http://localhost:3000`, and `http://localhost`.
 - Credentials, all methods, and all headers are currently allowed for configured origins.
+- When `TRUST_PROXY_HEADERS=true`, client-IP resolution prefers `X-Forwarded-For` and `X-Real-IP`, which affects session tracking and login-alert messages behind a trusted reverse proxy.
 
 Rate limiting:
 

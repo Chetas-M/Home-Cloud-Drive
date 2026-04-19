@@ -23,6 +23,7 @@ Home Cloud Drive lets you upload, organize, preview, share, and manage files wit
 - JWT authentication (register/login/current-user) with Password Reset Flow
 - Authenticator-based Two-Factor Authentication (2FA)
 - Active Device & Session Management (view and revoke sessions)
+- Optional new-login alert emails for tracked sessions
 - Resumable chunked file uploads & folder uploads with real-time UI progress
 - File version history with upload, download, restore, and delete actions
 - Server-backed file search with background auto-indexing
@@ -199,7 +200,7 @@ Primary variables (root `.env`):
 - `SESSION_LAST_SEEN_UPDATE_INTERVAL_SECONDS` - throttle for session activity writes
 - `TRUST_PROXY_HEADERS` - trust forwarded proxy headers for client IP detection
 - `RESEND_API_KEY` - Resend API key used to send transactional emails
-- `RESEND_FROM_EMAIL` / `RESEND_FROM_NAME` - sender details shown on password reset emails
+- `RESEND_FROM_EMAIL` / `RESEND_FROM_NAME` - sender details shown on password reset and login alert emails
 - `RESEND_API_URL` - Resend send-email endpoint, defaults to `https://api.resend.com/emails`
 - `RESEND_TIMEOUT_SECONDS` - timeout for Resend API requests
 - `PASSWORD_RESET_URL` - public frontend reset page URL used in emailed reset links
@@ -218,6 +219,15 @@ See `backend/.env.example` for backend-specific defaults.
 - `POST /api/auth/forgot-password` sends a reset email through Resend when `RESEND_API_KEY` and `RESEND_FROM_EMAIL` are configured.
 - The frontend handles reset links on `/reset-password?reset_token=...` and shows a dedicated password reset form.
 - If email delivery is not configured, the API returns a clear setup error instead of silently failing.
+- The same Resend configuration also enables new-login alert emails for tracked sessions.
+
+### Sharing and upload notes
+
+- Share links are file-only; folders cannot be shared directly.
+- Trashing a file automatically deactivates any active share links that point to it.
+- Password-protected share downloads use the `X-Share-Password` header instead of query parameters.
+- Resumable uploads are stored under `storage/tmp/<user_id>/<upload_id>` until completion.
+- Abandoned resumable upload temp directories are not automatically garbage-collected yet, so operators should monitor `storage/tmp` on long-running deployments.
 
 ## API overview
 

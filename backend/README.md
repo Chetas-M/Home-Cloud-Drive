@@ -87,6 +87,19 @@ docker-compose up -d --build
 | Sharing | `/api/share` |
 | Admin | `/api/admin` |
 
+## Resumable upload endpoints
+
+| Method | Endpoint | Description |
+| --- | --- | --- |
+| POST | `/api/files/upload/init` | Create or resume a chunked upload session |
+| POST | `/api/files/upload/{upload_id}/chunk` | Upload one validated chunk to the temporary session directory |
+| GET | `/api/files/upload/{upload_id}/status` | Return uploaded chunk indexes and byte counts for resume support |
+| POST | `/api/files/upload/complete` | Verify the upload, assemble the final file, and create the database row |
+
+Resumable uploads are staged under `storage/tmp/<user_id>/<upload_id>` until assembly completes.
+The backend validates declared chunk sizes, re-checks quota and max-file-size limits at completion, and best-effort removes the temp directory after success.
+Abandoned temp directories are not automatically cleaned up yet, so operators should monitor disk usage under `storage/tmp`.
+
 ## File version endpoints
 
 | Method | Endpoint | Description |
@@ -98,6 +111,15 @@ docker-compose up -d --build
 | DELETE | `/api/files/{file_id}/versions/{version_id}` | Delete a historical version that is not current |
 
 Version history is available only for non-folder files. Existing rows created before the feature landed get a base version record automatically the first time version history is requested.
+
+## Sharing behavior
+
+- Share links can be created only for non-trashed files; folder shares are rejected.
+- Public access uses `POST /api/share/{token}` to validate the link and optional password before showing metadata.
+- Public downloads use `GET /api/share/{token}/download`.
+- Password-protected downloads pass the password in the `X-Share-Password` header.
+- Trashing a file deactivates active share links that target it, and later access returns `410 Gone`.
+- Download limits are enforced atomically so concurrent consumers cannot overrun the remaining quota.
 
 ## Configuration
 
@@ -126,6 +148,7 @@ Environment variables in `backend/.env`:
 | `PASSWORD_RESET_URL` | - | Preferred frontend reset page, such as `https://cloud.example.com/reset-password` |
 
 Password reset email delivery is enabled only when both `RESEND_API_KEY` and `RESEND_FROM_EMAIL` are set.
+The same email configuration is also used for new-login alert emails after successful session creation.
 If `PASSWORD_RESET_URL` is blank, the backend tries to build a reset link from a trusted request origin or the first configured CORS origin.
 `SECRET_KEY` is required and validated at startup; placeholder values and keys shorter than 32 characters are rejected before the app finishes booting.
 
@@ -135,6 +158,7 @@ If `PASSWORD_RESET_URL` is blank, the backend tries to build a reset link from a
 - Reset links include a `reset_token` query parameter and are meant for the frontend `/reset-password` route.
 - Reset tokens are invalidated when the password changes because they are tied to the user's current password fingerprint.
 - Misconfigured email delivery returns a clear 503 error describing the missing Resend setting.
+- When email delivery is configured, successful logins also queue a login alert email with the detected device label and resolved client IP.
 
 ## Storage and lifecycle behavior
 
