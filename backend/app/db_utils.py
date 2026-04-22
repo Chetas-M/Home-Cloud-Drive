@@ -20,3 +20,8 @@ def escape_like_literal(value: str) -> str:
         .replace("%", f"{LIKE_ESCAPE_CHAR}%")
         .replace("_", f"{LIKE_ESCAPE_CHAR}_")
     )
+
+
+def prefix_like_pattern(value: str) -> str:
+    """Build a LIKE prefix pattern that treats the prefix as a literal string."""
+    return f"{escape_like_literal(value)}%"

@@ -34,7 +34,7 @@ from app.schemas import (
 )
 from app.auth import get_current_user
 from app.config import get_settings
-from app.db_utils import LIKE_ESCAPE_CHAR, escape_like_literal
+from app.db_utils import LIKE_ESCAPE_CHAR, escape_like_literal, prefix_like_pattern
 from app.search_index import build_match_context, build_search_document
 from app.shared_access import (
     FileAccessContext,
@@ -154,7 +154,7 @@ def get_serialized_path_variants(path: List[str]) -> List[str]:
 
 def get_serialized_path_prefixes(path: List[str]) -> List[str]:
     """Return LIKE prefixes for all known serialized path forms."""
-    return [f"{variant[:-1]}%" for variant in get_serialized_path_variants(path)]
+    return [prefix_like_pattern(variant[:-1]) for variant in get_serialized_path_variants(path)]
 
 
 def normalize_path(path_json: str) -> str:
@@ -504,7 +504,7 @@ async def search_files(
         conditions.append(
             or_(
                 FileModel.id == shared_root.id,
-                *[FileModel.path.like(prefix) for prefix in path_prefixes],
+                *[FileModel.path.like(prefix, escape=LIKE_ESCAPE_CHAR) for prefix in path_prefixes],
             )
         )
     else:
@@ -1624,14 +1624,6 @@ async def update_file(
     if file.type == "folder" and (update.name is not None or update.path is not None):
         new_full_path = parse_path(file.path) + [file.name]
         folder_path_prefixes = get_serialized_path_prefixes(old_full_path)
-        escaped_folder_path_prefixes = [
-            (
-                f"{escape_like_literal(prefix[:-1])}%"
-                if prefix.endswith("%")
-                else escape_like_literal(prefix)
-            )
-            for prefix in folder_path_prefixes
-        ]
         children_result = await db.execute(
             select(FileModel).where(
                 and_(
@@ -1639,7 +1631,7 @@ async def update_file(
                     FileModel.id != file.id,
                     or_(*[
                         FileModel.path.like(prefix, escape=LIKE_ESCAPE_CHAR)
-                        for prefix in escaped_folder_path_prefixes
+                        for prefix in folder_path_prefixes
                     ]),
                 )
             )
@@ -1687,7 +1679,7 @@ async def trash_file(
             select(FileModel).where(
                 and_(
                     FileModel.owner_id == file.owner_id,
-                    or_(*[FileModel.path.like(prefix) for prefix in folder_path_prefixes]),
+                    or_(*[FileModel.path.like(prefix, escape=LIKE_ESCAPE_CHAR) for prefix in folder_path_prefixes]),
                     FileModel.is_trashed == False,
                 )
             )
@@ -1747,7 +1739,7 @@ async def restore_file(
             select(FileModel).where(
                 and_(
                     FileModel.owner_id == file.owner_id,
-                    or_(*[FileModel.path.like(prefix) for prefix in folder_path_prefixes]),
+                    or_(*[FileModel.path.like(prefix, escape=LIKE_ESCAPE_CHAR) for prefix in folder_path_prefixes]),
                     FileModel.is_trashed == True,
                 )
             )
@@ -1795,7 +1787,7 @@ async def delete_file_permanently(
             select(FileModel).where(
                 and_(
                     FileModel.owner_id == file.owner_id,
-                    or_(*[FileModel.path.like(prefix) for prefix in folder_path_prefixes]),
+                    or_(*[FileModel.path.like(prefix, escape=LIKE_ESCAPE_CHAR) for prefix in folder_path_prefixes]),
                 )
             )
         )
