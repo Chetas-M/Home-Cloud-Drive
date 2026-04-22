@@ -11,6 +11,7 @@ from fastapi import HTTPException
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db_utils import prefix_like_pattern
 from app.models import File as FileModel, SharedFolderAccess, User
 from app.tree_validation import normalize_tree_path
 
@@ -63,7 +64,7 @@ def relative_path_within_shared_root(resource: FileModel, shared_root: FileModel
 
 def path_prefixes_for_shared_root(shared_root: FileModel) -> tuple[list[str], list[str]]:
     root_prefix = parse_path(shared_root.path) + [shared_root.name]
-    return root_prefix, [f"{variant[:-1]}%" for variant in get_serialized_path_variants(root_prefix)]
+    return root_prefix, [prefix_like_pattern(variant[:-1]) for variant in get_serialized_path_variants(root_prefix)]
 
 
 def has_required_role(actual_role: str, required_role: str) -> bool:

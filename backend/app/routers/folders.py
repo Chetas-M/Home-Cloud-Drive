@@ -12,6 +12,7 @@ from app.database import get_db
 from app.models import User, File as FileModel, ActivityLog, ShareLink
 from app.schemas import FolderCreate, FileResponse as FileResponseSchema
 from app.auth import get_current_user
+from app.db_utils import LIKE_ESCAPE_CHAR, prefix_like_pattern
 from app.shared_access import get_file_access_context, relative_path_within_shared_root, resolve_target_path
 from app.tree_validation import sanitize_tree_name, ensure_folder_path_exists
 
@@ -41,7 +42,7 @@ def get_serialized_path_variants(path: List[str]) -> List[str]:
 
 def get_serialized_path_prefixes(path: List[str]) -> List[str]:
     """Return LIKE prefixes for all known serialized path forms."""
-    return [f"{variant[:-1]}%" for variant in get_serialized_path_variants(path)]
+    return [prefix_like_pattern(variant[:-1]) for variant in get_serialized_path_variants(path)]
 
 
 @router.post("", response_model=FileResponseSchema, status_code=status.HTTP_201_CREATED)
@@ -154,7 +155,7 @@ async def delete_folder(
         select(FileModel).where(
             and_(
                 FileModel.owner_id == folder.owner_id,
-                or_(*[FileModel.path.like(prefix) for prefix in folder_path_prefixes]),
+                or_(*[FileModel.path.like(prefix, escape=LIKE_ESCAPE_CHAR) for prefix in folder_path_prefixes]),
             )
         )
     )
