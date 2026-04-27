@@ -46,7 +46,11 @@ export default function FilePreviewModal({
                         URL.revokeObjectURL(url);
                     }
                 })
-                .catch(() => setPreviewUrl(null));
+                .catch(() => {
+                    if (active) {
+                        setPreviewUrl(null);
+                    }
+                });
             return () => {
                 active = false;
                 if (objectUrl) URL.revokeObjectURL(objectUrl);
