@@ -34,12 +34,29 @@ export default function FilePreviewModal({
     // Fetch blob URL for image/video/PDF previews (avoids JWT in URL)
     useEffect(() => {
         if (["image", "video", "pdf"].includes(file.type)) {
+            let active = true;
+            let objectUrl = null;
             setPreviewUrl(null);
             api.fetchPreviewBlob(file.id)
-                .then(url => setPreviewUrl(url))
-                .catch(() => setPreviewUrl(null));
+                .then(url => {
+                    objectUrl = url;
+                    if (active) {
+                        setPreviewUrl(url);
+                    } else {
+                        URL.revokeObjectURL(url);
+                    }
+                })
+                .catch(() => {
+                    if (active) {
+                        setPreviewUrl(null);
+                    }
+                });
+            return () => {
+                active = false;
+                if (objectUrl) URL.revokeObjectURL(objectUrl);
+            };
         }
-        return () => { if (previewUrl) URL.revokeObjectURL(previewUrl); };
+        setPreviewUrl(null);
     }, [file]);
 
     // Keyboard navigation

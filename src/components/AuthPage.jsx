@@ -38,7 +38,7 @@ export default function AuthPage({ onLogin }) {
     useEffect(() => {
         const container = starsRef.current;
         if (!container) return;
-        container.innerHTML = '';
+        container.replaceChildren();
         const count = window.innerWidth < 768 ? 80 : 120;
         for (let i = 0; i < count; i++) {
             const star = document.createElement('div');
@@ -59,7 +59,7 @@ export default function AuthPage({ onLogin }) {
     useEffect(() => {
         const container = windsRef.current;
         if (!container) return;
-        container.innerHTML = '';
+        container.replaceChildren();
         const positions = [8, 18, 28, 42, 55, 63, 72, 82, 91];
         positions.forEach((top) => {
             const wind = document.createElement('div');
