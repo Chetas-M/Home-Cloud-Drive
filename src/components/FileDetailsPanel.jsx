@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import {
     X,
     Download,
@@ -56,6 +56,18 @@ export default function FileDetailsPanel({
     onShowVersions,
 }) {
     const Icon = iconConfig[file.type] || iconConfig.default;
+    const [previewUrl, setPreviewUrl] = useState(null);
+
+    useEffect(() => {
+        if (file.type !== "image" || !file.blob) {
+            setPreviewUrl(null);
+            return;
+        }
+
+        const objectUrl = URL.createObjectURL(file.blob);
+        setPreviewUrl(objectUrl);
+        return () => URL.revokeObjectURL(objectUrl);
+    }, [file]);
 
     return (
         <div className="details-panel">
@@ -68,9 +80,9 @@ export default function FileDetailsPanel({
 
             {/* Preview */}
             <div className="details-preview">
-                {file.type === "image" && file.blob ? (
+                {previewUrl ? (
                     <img
-                        src={URL.createObjectURL(file.blob)}
+                        src={previewUrl}
                         alt={file.name}
                         className="details-thumbnail"
                     />
