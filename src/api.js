@@ -33,13 +33,14 @@ function buildUploadFingerprint(file, path) {
 
 class ApiService {
     constructor() {
-        this.token = null;
-        localStorage.removeItem('token');
+        this.token = localStorage.getItem('token');
     }
 
     setToken(token) {
         this.token = token;
-        if (!token) {
+        if (token) {
+            localStorage.setItem('token', token);
+        } else {
             localStorage.removeItem('token');
         }
     }
