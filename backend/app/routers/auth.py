@@ -202,6 +202,7 @@ async def create_user_session(
     )
     db.add(session)
     await db.flush()
+    await db.commit()
 
     access_token = create_access_token(
         data={"sub": user.id, "sid": session.id},
@@ -264,6 +265,7 @@ async def register(request: Request, user_data: UserCreate, db: AsyncSession = D
 
     db.add(new_user)
     await db.flush()
+    await db.commit()
     await db.refresh(new_user)
     return new_user
 
