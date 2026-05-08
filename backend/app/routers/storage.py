@@ -11,6 +11,7 @@ from app.limiter import limiter
 from app.models import User, File as FileModel, ActivityLog, FileVersion
 from app.schemas import StorageResponse, StorageBreakdown, ActivityResponse
 from app.auth import get_current_user
+from app.routers.auth import get_client_ip
 from app.config import get_settings
 
 router = APIRouter(prefix="/api/storage", tags=["Storage"])
@@ -173,12 +174,12 @@ async def empty_trash(
     if current_user.storage_used < 0:
         current_user.storage_used = 0
 
-    ip = request.client.host if request.client else None
+    ip = get_client_ip(request)
     db.add(ActivityLog(
         user_id=current_user.id,
         action="empty_trash",
         ip_address=ip,
-        file_name=None,
+        file_name="",
         details=f"Freed {total_freed} bytes from {len(trashed_files)} files"
     ))
     

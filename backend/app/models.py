@@ -142,7 +142,7 @@ class ActivityLog(Base):
     id = Column(String(36), primary_key=True, default=generate_uuid)
     user_id = Column(String(36), ForeignKey("users.id"), nullable=False)
     action = Column(String(50), nullable=False)  # upload, download, rename, trash, etc.
-    file_name = Column(String(255), nullable=True)
+    file_name = Column(String(255), nullable=False, default="")
     ip_address = Column(String(64), nullable=True)
     details = Column(Text, nullable=True)
     timestamp = Column(DateTime, default=lambda: datetime.now(timezone.utc))

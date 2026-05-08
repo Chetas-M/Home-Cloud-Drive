@@ -293,10 +293,11 @@ async def login(
             temporary_token=create_temporary_login_token(user.id),
         )
 
-    ip = request.client.host if request.client else None
+    ip = get_client_ip(request)
     db.add(ActivityLog(
         user_id=user.id,
         action="login",
+        file_name="",
         ip_address=ip,
         details=f"User-Agent: {request.headers.get('user-agent')}"
     ))
@@ -321,10 +322,11 @@ async def login_with_two_factor(
     if not verify_totp_code(user.two_factor_secret, payload.code):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid 2FA code")
 
-    ip = request.client.host if request.client else None
+    ip = get_client_ip(request)
     db.add(ActivityLog(
         user_id=user.id,
         action="login_2fa",
+        file_name="",
         ip_address=ip,
         details=f"User-Agent: {request.headers.get('user-agent')}"
     ))
@@ -364,10 +366,11 @@ async def logout(
         if session and session.revoked_at is None:
             session.revoked_at = datetime.now(timezone.utc)
 
-    ip = request.client.host if request.client else None
+    ip = get_client_ip(request)
     db.add(ActivityLog(
         user_id=current_user.id,
         action="logout",
+        file_name="",
         ip_address=ip,
         details=f"User-Agent: {request.headers.get('user-agent')}"
     ))
