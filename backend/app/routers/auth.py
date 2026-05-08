@@ -34,7 +34,7 @@ from app.config import get_settings
 from app.database import get_db
 from app.email_service import send_login_alert_email, send_password_reset_email
 from app.limiter import limiter
-from app.models import User, UserSession
+from app.models import ActivityLog, User, UserSession
 from app.schemas import (
     ForgotPasswordRequest,
     PasswordChange,
@@ -293,6 +293,14 @@ async def login(
             temporary_token=create_temporary_login_token(user.id),
         )
 
+    ip = get_client_ip(request)
+    db.add(ActivityLog(
+        user_id=user.id,
+        action="login",
+        file_name="",
+        ip_address=ip,
+        details=f"User-Agent: {request.headers.get('user-agent')}"
+    ))
     return await create_user_session(request, user, db, background_tasks)
 
 
@@ -314,6 +322,14 @@ async def login_with_two_factor(
     if not verify_totp_code(user.two_factor_secret, payload.code):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid 2FA code")
 
+    ip = get_client_ip(request)
+    db.add(ActivityLog(
+        user_id=user.id,
+        action="login_2fa",
+        file_name="",
+        ip_address=ip,
+        details=f"User-Agent: {request.headers.get('user-agent')}"
+    ))
     return await create_user_session(request, user, db, background_tasks)
 
 
@@ -350,6 +366,14 @@ async def logout(
         if session and session.revoked_at is None:
             session.revoked_at = datetime.now(timezone.utc)
 
+    ip = get_client_ip(request)
+    db.add(ActivityLog(
+        user_id=current_user.id,
+        action="logout",
+        file_name="",
+        ip_address=ip,
+        details=f"User-Agent: {request.headers.get('user-agent')}"
+    ))
     return {"detail": "Signed out successfully"}
 
 

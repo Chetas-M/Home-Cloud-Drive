@@ -225,7 +225,9 @@ class StorageResponse(BaseModel):
 
 class ActivityResponse(BaseModel):
     action: str
-    file_name: str
+    file_name: Optional[str] = None
+    ip_address: Optional[str] = None
+    details: Optional[str] = None
     timestamp: datetime
 
     class Config:

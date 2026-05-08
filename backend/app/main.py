@@ -28,6 +28,8 @@ async def run_migrations():
         ("files", "content_index", "ALTER TABLE files ADD COLUMN content_index TEXT"),
         ("files", "thumbnail_path", "ALTER TABLE files ADD COLUMN thumbnail_path VARCHAR(500)"),
         ("files", "version", "ALTER TABLE files ADD COLUMN version INTEGER DEFAULT 1"),
+        ("activity_logs", "ip_address", "ALTER TABLE activity_logs ADD COLUMN ip_address VARCHAR(64)"),
+        ("activity_logs", "details", "ALTER TABLE activity_logs ADD COLUMN details TEXT"),
     ]
     
     async with engine.begin() as conn:
@@ -37,6 +39,13 @@ async def run_migrations():
                 print(f"[+] Added column {table}.{column}")
             except Exception:
                 pass  # nosec B110
+
+        try:
+            await conn.execute(
+                text("UPDATE activity_logs SET file_name = '' WHERE file_name IS NULL")
+            )
+        except Exception:
+            pass  # nosec B110
 
         # Ensure the unique index on (file_id, version) exists for existing databases
         try:
@@ -126,6 +135,39 @@ async def cleanup_old_trash():
         
         await db.commit()
         print(f"[+] Trash cleanup: deleted {deleted_count} files older than {days} days")
+
+
+async def cleanup_activity_logs():
+    """Auto-delete activity logs older than 300 days."""
+    from datetime import datetime, timedelta, timezone
+    from sqlalchemy import delete
+    from app.database import async_session
+    from app.models import ActivityLog
+    
+    days = 300
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    
+    async with async_session() as db:
+        result = await db.execute(
+            delete(ActivityLog).where(ActivityLog.timestamp < cutoff)
+        )
+        deleted_count = result.rowcount or 0
+        if deleted_count == 0:
+            return
+
+        await db.commit()
+        print(f"[+] Activity log cleanup: deleted {deleted_count} logs older than {days} days")
+
+
+async def run_activity_log_cleanup_loop(stop_event: asyncio.Event):
+    """Run activity log retention cleanup on a daily schedule until shutdown."""
+    interval_seconds = 24 * 60 * 60
+    while not stop_event.is_set():
+        await cleanup_activity_logs()
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=interval_seconds)
+        except asyncio.TimeoutError:
+            pass
 
 
 BACKFILL_BATCH_SIZE = 100
@@ -255,6 +297,11 @@ async def lifespan(app: FastAPI):
     
     # Auto-cleanup old trashed files
     await cleanup_old_trash()
+
+    cleanup_stop_event = asyncio.Event()
+    cleanup_task = asyncio.create_task(run_activity_log_cleanup_loop(cleanup_stop_event))
+    app.state.activity_log_cleanup_stop_event = cleanup_stop_event
+    app.state.activity_log_cleanup_task = cleanup_task
     
     yield
     
@@ -264,6 +311,16 @@ async def lifespan(app: FastAPI):
         task.cancel()
         try:
             await task
+        except asyncio.CancelledError:
+            pass
+    cleanup_stop_event = getattr(app.state, "activity_log_cleanup_stop_event", None)
+    if cleanup_stop_event is not None:
+        cleanup_stop_event.set()
+    cleanup_task = getattr(app.state, "activity_log_cleanup_task", None)
+    if cleanup_task is not None and not cleanup_task.done():
+        cleanup_task.cancel()
+        try:
+            await cleanup_task
         except asyncio.CancelledError:
             pass
     print("[*] Shutting down Home Cloud Drive API...")
