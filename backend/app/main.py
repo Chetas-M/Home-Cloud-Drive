@@ -167,7 +167,7 @@ async def run_activity_log_cleanup_loop(stop_event: asyncio.Event):
         try:
             await asyncio.wait_for(stop_event.wait(), timeout=interval_seconds)
         except asyncio.TimeoutError:
-            continue
+            pass
 
 
 BACKFILL_BATCH_SIZE = 100
@@ -318,7 +318,11 @@ async def lifespan(app: FastAPI):
         cleanup_stop_event.set()
     cleanup_task = getattr(app.state, "activity_log_cleanup_task", None)
     if cleanup_task is not None and not cleanup_task.done():
-        await cleanup_task
+        cleanup_task.cancel()
+        try:
+            await cleanup_task
+        except asyncio.CancelledError:
+            pass
     print("[*] Shutting down Home Cloud Drive API...")
 
 
