@@ -28,6 +28,8 @@ async def run_migrations():
         ("files", "content_index", "ALTER TABLE files ADD COLUMN content_index TEXT"),
         ("files", "thumbnail_path", "ALTER TABLE files ADD COLUMN thumbnail_path VARCHAR(500)"),
         ("files", "version", "ALTER TABLE files ADD COLUMN version INTEGER DEFAULT 1"),
+        ("activity_logs", "ip_address", "ALTER TABLE activity_logs ADD COLUMN ip_address VARCHAR(64)"),
+        ("activity_logs", "details", "ALTER TABLE activity_logs ADD COLUMN details TEXT"),
     ]
     
     async with engine.begin() as conn:
@@ -126,6 +128,32 @@ async def cleanup_old_trash():
         
         await db.commit()
         print(f"[+] Trash cleanup: deleted {deleted_count} files older than {days} days")
+
+
+async def cleanup_activity_logs():
+    """Auto-delete activity logs older than 300 days."""
+    from datetime import datetime, timedelta, timezone
+    from sqlalchemy import select
+    from app.database import async_session
+    from app.models import ActivityLog
+    
+    days = 300
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    
+    async with async_session() as db:
+        result = await db.execute(
+            select(ActivityLog).where(ActivityLog.timestamp < cutoff)
+        )
+        old_logs = result.scalars().all()
+        if not old_logs:
+            return
+        
+        deleted_count = len(old_logs)
+        for log in old_logs:
+            await db.delete(log)
+            
+        await db.commit()
+        print(f"[+] Activity log cleanup: deleted {deleted_count} logs older than {days} days")
 
 
 BACKFILL_BATCH_SIZE = 100
@@ -255,6 +283,9 @@ async def lifespan(app: FastAPI):
     
     # Auto-cleanup old trashed files
     await cleanup_old_trash()
+
+    # Auto-cleanup old activity logs
+    await cleanup_activity_logs()
     
     yield
     
