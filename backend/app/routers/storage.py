@@ -111,6 +111,8 @@ async def get_activity_log(
     return [ActivityResponse(
         action=a.action,
         file_name=a.file_name,
+        ip_address=a.ip_address,
+        details=a.details,
         timestamp=a.timestamp,
     ) for a in activities]
 
@@ -170,5 +172,14 @@ async def empty_trash(
     current_user.storage_used -= total_freed
     if current_user.storage_used < 0:
         current_user.storage_used = 0
+
+    ip = request.client.host if request.client else None
+    db.add(ActivityLog(
+        user_id=current_user.id,
+        action="empty_trash",
+        ip_address=ip,
+        file_name=None,
+        details=f"Freed {total_freed} bytes from {len(trashed_files)} files"
+    ))
     
     await db.flush()
