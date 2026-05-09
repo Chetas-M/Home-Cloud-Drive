@@ -1,5 +1,13 @@
 # Home Cloud Drive Development Report
 
+## Latest Updates (May 9, 2026)
+
+### Documentation refresh
+- Added a dedicated upgrade-opportunities guide for future planning without changing runtime behavior.
+- Linked the upgrade guide from the root README and summarized the highest-impact next steps for operators and maintainers.
+
+---
+
 ## Latest Updates (Apr 19, 2026)
 
 ### Documentation refresh

@@ -17,6 +17,7 @@ Home Cloud Drive lets you upload, organize, preview, share, and manage files wit
 - [Security notes](#security-notes)
 - [Useful commands](#useful-commands)
 - [Additional documentation](#additional-documentation)
+- [Upgrade opportunities](#upgrade-opportunities)
 
 ## Features
 
@@ -286,4 +287,11 @@ docker-compose down
 
 - Backend service docs: [`backend/README.md`](backend/README.md)
 - Architecture deep dive: [`docs/architecture.md`](docs/architecture.md)
+- Upgrade opportunities: [`docs/upgrade-opportunities.md`](docs/upgrade-opportunities.md)
 - Development history: [`CHANGELOG.md`](CHANGELOG.md)
+
+## Upgrade opportunities
+
+The project is ready for several meaningful next-step improvements, including object storage support, automated cleanup for abandoned resumable uploads, richer search indexing, async background workers, database scalability options, stronger observability, and automated backups.
+
+See [`docs/upgrade-opportunities.md`](docs/upgrade-opportunities.md) for a prioritized list with expected impact and implementation notes.
