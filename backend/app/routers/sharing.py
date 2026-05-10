@@ -353,6 +353,7 @@ async def get_share_analytics(
     )
     access_logs = access_result.scalars().all()
 
+    # Downloads are tracked atomically on ShareLink.download_count during download access.
     total_views = sum(1 for log in access_logs if log.action == "view")
 
     return ShareAnalyticsResponse(

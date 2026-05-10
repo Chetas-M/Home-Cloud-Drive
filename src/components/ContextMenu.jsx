@@ -42,7 +42,13 @@ export default function ContextMenu({
         if (isMobile) {
             const previousOverflow = document.body.style.overflow;
             document.body.style.overflow = 'hidden';
-            return () => { document.body.style.overflow = previousOverflow; };
+            return () => {
+                if (previousOverflow) {
+                    document.body.style.overflow = previousOverflow;
+                } else {
+                    document.body.style.removeProperty('overflow');
+                }
+            };
         }
     }, [isMobile]);
 
