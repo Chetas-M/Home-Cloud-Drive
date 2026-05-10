@@ -827,6 +827,15 @@ body {
   align-items: center;
   padding: 14px 16px;
   border-bottom: 1px solid var(--border-color);
+  width: 100%;
+  background: transparent;
+  border-left: 0;
+  border-right: 0;
+  border-top: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
 }
 
 .upload-progress-title {
@@ -4319,18 +4328,6 @@ body {
     animation: slideInUp 0.3s ease;
   }
 
-  @keyframes slideInUp {
-    from {
-      transform: translateY(100%);
-      opacity: 0;
-    }
-
-    to {
-      transform: translateY(0);
-      opacity: 1;
-    }
-  }
-
   .main-area.with-details {
     margin-right: 0;
   }
@@ -4727,6 +4724,18 @@ body {
    BULK ACTION BAR
    ============================================ */
 
+@keyframes slideInUp {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
 .bulk-action-bar {
   position: fixed;
   bottom: 24px;
@@ -4833,11 +4842,6 @@ body {
 .bulk-close-btn:hover {
   background: rgba(255, 255, 255, 0.08);
   color: var(--text-primary);
-}
-
-@keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
 }
 
 .spin {

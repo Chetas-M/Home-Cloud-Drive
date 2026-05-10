@@ -314,7 +314,7 @@ class ShareAnalyticsResponse(BaseModel):
     total_views: int = 0
     last_accessed_at: Optional[datetime] = None
     created_at: datetime
-    access_history: List["ShareAccessLogResponse"] = []
+    access_history: List["ShareAccessLogResponse"] = Field(default_factory=list)
 
 
 class BulkActionRequest(BaseModel):

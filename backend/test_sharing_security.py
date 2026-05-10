@@ -15,6 +15,7 @@ from app.routers.sharing import (  # noqa: E402
     reserve_share_download_slot,
     create_share_link,
     access_shared_file,
+    get_share_analytics,
     _deactivate_share_link_for_trashed_file,
 )
 from app.schemas import ShareLinkCreate  # noqa: E402
@@ -213,6 +214,85 @@ class AccessSharedFileTrashedTests(unittest.IsolatedAsyncioTestCase):
 
         db.execute.assert_not_awaited()
         db.commit.assert_not_awaited()
+
+    async def test_access_shared_file_logs_view_and_updates_last_accessed(self):
+        file_obj = make_file(is_trashed=False)
+        link = self._make_link(is_active=True)
+        link.permission = "view"
+
+        row_mock = Mock()
+        row_mock.__getitem__ = Mock(side_effect=lambda i: link if i == 0 else file_obj)
+        select_result = Mock()
+        select_result.first = Mock(return_value=row_mock)
+
+        db = AsyncMock()
+        db.execute = AsyncMock(side_effect=[select_result, Mock()])
+        db.add = Mock()
+        db.flush = AsyncMock()
+
+        response = await access_shared_file(
+            request=make_request(),
+            token="test-token",
+            body=None,
+            db=db,
+        )
+
+        self.assertEqual(response["permission"], "view")
+        self.assertEqual(db.add.call_args.args[0].action, "view")
+        self.assertEqual(db.add.call_args.args[0].share_link_id, link.id)
+        db.flush.assert_awaited_once()
+
+
+class ShareAnalyticsTests(unittest.IsolatedAsyncioTestCase):
+    async def test_get_share_analytics_is_owner_only(self):
+        first_result = Mock()
+        first_result.first = Mock(return_value=None)
+        db = AsyncMock()
+        db.execute = AsyncMock(return_value=first_result)
+        current_user = SimpleNamespace(id="owner-1")
+
+        with self.assertRaises(HTTPException) as ctx:
+            await get_share_analytics(
+                link_id="link-1",
+                current_user=current_user,
+                db=db,
+            )
+
+        self.assertEqual(ctx.exception.status_code, 404)
+
+    async def test_get_share_analytics_counts_views_and_includes_history(self):
+        now = datetime.now(timezone.utc)
+        link = ShareLink(id="link-1", owner_id="owner-1", permission="download", download_count=7)
+        link.created_at = now
+        link.last_accessed_at = now
+
+        row_mock = Mock()
+        row_mock.__getitem__ = Mock(side_effect=lambda i: link if i == 0 else "file.txt")
+        first_result = Mock()
+        first_result.first = Mock(return_value=row_mock)
+
+        logs = [
+            SimpleNamespace(id="l1", action="view", ip_address="1.1.1.1", user_agent="UA1", accessed_at=now),
+            SimpleNamespace(id="l2", action="download", ip_address="2.2.2.2", user_agent="UA2", accessed_at=now),
+            SimpleNamespace(id="l3", action="view", ip_address="3.3.3.3", user_agent="UA3", accessed_at=now),
+        ]
+        access_result = Mock()
+        access_result.scalars = Mock(return_value=Mock(all=Mock(return_value=logs)))
+
+        db = AsyncMock()
+        db.execute = AsyncMock(side_effect=[first_result, access_result])
+        current_user = SimpleNamespace(id="owner-1")
+
+        response = await get_share_analytics(
+            link_id="link-1",
+            current_user=current_user,
+            db=db,
+        )
+
+        self.assertEqual(response.total_downloads, 7)
+        self.assertEqual(response.total_views, 2)
+        self.assertEqual(len(response.access_history), 3)
+        self.assertIn("LIMIT", str(db.execute.await_args_list[1].args[0]).upper())
 
 
 if __name__ == "__main__":

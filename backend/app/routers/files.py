@@ -1957,91 +1957,53 @@ async def bulk_action(
             results["failed"].append({"id": fid, "error": "Not found"})
             continue
 
-        file = found_files[fid]
         try:
             if body.action == "trash":
-                if not file.is_trashed:
-                    file.is_trashed = True
-                    file.trashed_at = datetime.now(timezone.utc)
-                    db.add(ActivityLog(
-                        user_id=current_user.id,
-                        action="trash",
-                        file_name=file.name,
-                    ))
+                await trash_file(
+                    request=request,
+                    file_id=fid,
+                    current_user=current_user,
+                    db=db,
+                )
                 results["succeeded"].append(fid)
 
             elif body.action == "restore":
-                if file.is_trashed:
-                    file.is_trashed = False
-                    file.trashed_at = None
-                    db.add(ActivityLog(
-                        user_id=current_user.id,
-                        action="restore",
-                        file_name=file.name,
-                    ))
+                await restore_file(
+                    request=request,
+                    file_id=fid,
+                    current_user=current_user,
+                    db=db,
+                )
                 results["succeeded"].append(fid)
 
             elif body.action == "copy":
-                if file.type == "folder":
-                    results["failed"].append({"id": fid, "error": "Cannot copy folders"})
-                    continue
-
-                new_id = str(uuid.uuid4())
-                new_name = f"Copy of {file.name}"
-                new_storage = None
-
-                if file.storage_path and os.path.exists(file.storage_path):
-                    ext = file.name.split('.')[-1] if '.' in file.name else ''
-                    new_filename = f"{new_id}.{ext}" if ext else new_id
-                    user_dir = os.path.join(settings.storage_path, current_user.id)
-                    os.makedirs(user_dir, exist_ok=True)
-                    new_storage = os.path.join(user_dir, new_filename)
-                    import shutil
-                    shutil.copy2(file.storage_path, new_storage)
-
-                now = datetime.now(timezone.utc)
-                new_file = FileModel(
-                    id=new_id,
-                    name=new_name,
-                    type=file.type,
-                    mime_type=file.mime_type,
-                    size=file.size,
-                    path=file.path,
-                    storage_path=new_storage,
-                    owner_id=current_user.id,
-                    version=1,
-                    is_starred=False,
-                    is_trashed=False,
-                    created_at=now,
-                    updated_at=now,
+                await copy_file(
+                    request=request,
+                    file_id=fid,
+                    current_user=current_user,
+                    db=db,
                 )
-                db.add(new_file)
-                current_user.storage_used += file.size or 0
-                db.add(ActivityLog(
-                    user_id=current_user.id,
-                    action="copy",
-                    file_name=file.name,
-                ))
                 results["succeeded"].append(fid)
 
             elif body.action == "move":
                 if body.target_path is None:
                     results["failed"].append({"id": fid, "error": "target_path required"})
                     continue
-                target_path = normalize_tree_path(body.target_path)
-                file.path = serialize_path(target_path)
-                file.updated_at = datetime.now(timezone.utc)
-                db.add(ActivityLog(
-                    user_id=current_user.id,
-                    action="move",
-                    file_name=file.name,
-                ))
+                await update_file(
+                    request=request,
+                    file_id=fid,
+                    update=FileUpdate(path=body.target_path),
+                    current_user=current_user,
+                    db=db,
+                )
                 results["succeeded"].append(fid)
 
             elif body.action == "download":
                 # Download action is handled client-side by iterating
                 results["succeeded"].append(fid)
 
+        except HTTPException as e:
+            results["failed"].append({"id": fid, "error": str(e.detail)})
         except Exception as e:
             results["failed"].append({"id": fid, "error": str(e)})
 

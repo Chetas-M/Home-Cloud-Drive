@@ -143,6 +143,13 @@ export default function FileCard({
         longPressTimer.current = null;
     };
 
+    useEffect(() => {
+        return () => {
+            clearTimeout(longPressTimer.current);
+            longPressTimer.current = null;
+        };
+    }, []);
+
     /* --- Drag: make non-folder files draggable --- */
     const handleDragStart = (e) => {
         if (file.type === "folder") return;

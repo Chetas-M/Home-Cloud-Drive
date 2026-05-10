@@ -786,7 +786,9 @@ class ApiService {
             file_ids: fileIds,
             action,
         };
-        if (options.targetPath) body.target_path = options.targetPath;
+        if (options.targetPath !== undefined && options.targetPath !== null) {
+            body.target_path = options.targetPath;
+        }
         return this.request('/files/bulk', {
             method: 'POST',
             body: JSON.stringify(body),

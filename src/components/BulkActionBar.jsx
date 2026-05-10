@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React from "react";
 import {
     Trash2,
     FolderInput,
@@ -13,8 +13,6 @@ import {
 
 export default function BulkActionBar({
     selectedCount,
-    selectedIds,
-    files,
     currentView,
     onBulkTrash,
     onBulkRestore,

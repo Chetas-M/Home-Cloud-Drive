@@ -13,9 +13,8 @@ export default function ShareModal({ file, onClose }) {
     const [copied, setCopied] = useState(false);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
-    const [activeTab, setActiveTab] = useState('create'); // create | analytics
-    const [analytics, setAnalytics] = useState(null);
-    const [analyticsLoading, setAnalyticsLoading] = useState(false);
+    const [analyticsByLink, setAnalyticsByLink] = useState({});
+    const [analyticsLoadingLink, setAnalyticsLoadingLink] = useState(null);
     const [expandedLink, setExpandedLink] = useState(null);
 
     useEffect(() => {
@@ -80,8 +79,12 @@ export default function ShareModal({ file, onClose }) {
             loadLinks();
             if (expandedLink === linkId) {
                 setExpandedLink(null);
-                setAnalytics(null);
             }
+            setAnalyticsByLink(prev => {
+                const next = { ...prev };
+                delete next[linkId];
+                return next;
+            });
         } catch (err) {
             setError(err.message);
         }
@@ -90,19 +93,18 @@ export default function ShareModal({ file, onClose }) {
     const loadAnalytics = async (linkId) => {
         if (expandedLink === linkId) {
             setExpandedLink(null);
-            setAnalytics(null);
             return;
         }
         setExpandedLink(linkId);
-        setAnalyticsLoading(true);
+        if (analyticsByLink[linkId]) return;
+        setAnalyticsLoadingLink(linkId);
         try {
             const data = await api.getShareAnalytics(linkId);
-            setAnalytics(data);
+            setAnalyticsByLink(prev => ({ ...prev, [linkId]: data }));
         } catch (err) {
             console.error('Failed to load analytics:', err);
-            setAnalytics(null);
         } finally {
-            setAnalyticsLoading(false);
+            setAnalyticsLoadingLink(current => (current === linkId ? null : current));
         }
     };
 
@@ -237,7 +239,9 @@ export default function ShareModal({ file, onClose }) {
                     <div className="share-existing">
                         <h4>Active links ({existingLinks.length})</h4>
                         <div className="share-links-list">
-                            {existingLinks.map(link => (
+                            {existingLinks.map(link => {
+                                const analytics = analyticsByLink[link.id];
+                                return (
                                 <div key={link.id} className="share-link-item-wrapper">
                                     <div className="share-link-item">
                                         <div className="share-link-info">
@@ -268,13 +272,13 @@ export default function ShareModal({ file, onClose }) {
                                     {/* Analytics Panel */}
                                     {expandedLink === link.id && (
                                         <div className="share-analytics-panel">
-                                            {analyticsLoading ? (
-                                                <div className="share-analytics-loading">Loading analytics...</div>
+                                            {analyticsLoadingLink === link.id ? (
+                                                 <div className="share-analytics-loading">Loading analytics...</div>
                                             ) : analytics ? (
                                                 <>
-                                                    <div className="share-analytics-stats">
-                                                        <div className="analytics-stat">
-                                                            <Download size={14} />
+                                                     <div className="share-analytics-stats">
+                                                         <div className="analytics-stat">
+                                                             <Download size={14} />
                                                             <span className="analytics-stat-value">{analytics.total_downloads}</span>
                                                             <span className="analytics-stat-label">Downloads</span>
                                                         </div>
@@ -290,9 +294,9 @@ export default function ShareModal({ file, onClose }) {
                                                         </div>
                                                     </div>
 
-                                                    {analytics.access_history.length > 0 && (
-                                                        <div className="share-access-history">
-                                                            <h5>Access History</h5>
+                                                     {analytics.access_history.length > 0 && (
+                                                         <div className="share-access-history">
+                                                             <h5>Access History</h5>
                                                             <div className="access-history-list">
                                                                 {analytics.access_history.slice(0, 10).map(entry => (
                                                                     <div key={entry.id} className="access-history-item">
@@ -316,8 +320,8 @@ export default function ShareModal({ file, onClose }) {
                                                                     </div>
                                                                 ))}
                                                             </div>
-                                                        </div>
-                                                    )}
+                                                         </div>
+                                                     )}
                                                 </>
                                             ) : (
                                                 <div className="share-analytics-loading">No analytics available</div>
@@ -325,7 +329,8 @@ export default function ShareModal({ file, onClose }) {
                                         </div>
                                     )}
                                 </div>
-                            ))}
+                                );
+                            })}
                         </div>
                     </div>
                 )}

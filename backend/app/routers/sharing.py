@@ -220,6 +220,21 @@ async def access_shared_file(
         if not verify_password(password, link.password_hash):
             raise HTTPException(status_code=401, detail="Incorrect password")
 
+    now = datetime.now(timezone.utc)
+    db.add(ShareAccessLog(
+        share_link_id=link.id,
+        action="view",
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent", "")[:500],
+        accessed_at=now,
+    ))
+    await db.execute(
+        update(ShareLink)
+        .where(ShareLink.id == link.id)
+        .values(last_accessed_at=now)
+    )
+    await db.flush()
+
     # Return file info for view permission
     return {
         "file_name": file.name,
@@ -338,8 +353,6 @@ async def get_share_analytics(
     )
     access_logs = access_result.scalars().all()
 
-    # Count views vs downloads
-    total_downloads = sum(1 for log in access_logs if log.action == "download")
     total_views = sum(1 for log in access_logs if log.action == "view")
 
     return ShareAnalyticsResponse(

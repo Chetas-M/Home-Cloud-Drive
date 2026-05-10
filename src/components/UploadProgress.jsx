@@ -69,7 +69,11 @@ export default function UploadProgress({ uploads, onCancel, onRetry }) {
 
     return (
         <div className={`upload-progress-container ${isMinimized ? 'minimized' : ''}`}>
-            <div className="upload-progress-header" onClick={() => setIsMinimized(!isMinimized)}>
+            <button
+                type="button"
+                className="upload-progress-header"
+                onClick={() => setIsMinimized(!isMinimized)}
+            >
                 <div className="upload-progress-title">
                     <Upload size={18} />
                     <span>
@@ -110,7 +114,7 @@ export default function UploadProgress({ uploads, onCancel, onRetry }) {
                         </button>
                     )}
                 </div>
-            </div>
+            </button>
 
             <div className="upload-bar overall">
                 <div

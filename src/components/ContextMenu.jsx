@@ -40,8 +40,9 @@ export default function ContextMenu({
     // Prevent body scroll on mobile when context menu is open
     useEffect(() => {
         if (isMobile) {
+            const previousOverflow = document.body.style.overflow;
             document.body.style.overflow = 'hidden';
-            return () => { document.body.style.overflow = ''; };
+            return () => { document.body.style.overflow = previousOverflow; };
         }
     }, [isMobile]);
 
