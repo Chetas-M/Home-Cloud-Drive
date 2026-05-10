@@ -73,6 +73,7 @@ export default function UploadProgress({ uploads, onCancel, onRetry }) {
                 type="button"
                 className="upload-progress-header"
                 onClick={() => setIsMinimized(!isMinimized)}
+                aria-label={isMinimized ? 'Expand upload progress panel' : 'Minimize upload progress panel'}
             >
                 <div className="upload-progress-title">
                     <Upload size={18} />

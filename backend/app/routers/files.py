@@ -2003,7 +2003,7 @@ async def bulk_action(
                 results["succeeded"].append(fid)
 
         except HTTPException as e:
-            results["failed"].append({"id": fid, "error": str(e.detail)})
+            results["failed"].append({"id": fid, "error": e.detail})
         except Exception as e:
             results["failed"].append({"id": fid, "error": str(e)})
 
