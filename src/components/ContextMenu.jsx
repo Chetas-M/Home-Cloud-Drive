@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import {
     Download,
     Star,
@@ -11,6 +11,7 @@ import {
     Info,
     Share2,
     History,
+    X,
 } from "lucide-react";
 
 export default function ContextMenu({
@@ -30,6 +31,20 @@ export default function ContextMenu({
     onShare,
     onVersions,
 }) {
+    const [isMobile, setIsMobile] = useState(false);
+
+    useEffect(() => {
+        setIsMobile(window.innerWidth <= 768);
+    }, []);
+
+    // Prevent body scroll on mobile when context menu is open
+    useEffect(() => {
+        if (isMobile) {
+            document.body.style.overflow = 'hidden';
+            return () => { document.body.style.overflow = ''; };
+        }
+    }, [isMobile]);
+
     const menuItems = [
         { icon: Eye, label: "Preview", action: onPreview, show: file.type !== "folder" },
         { icon: Download, label: "Download", action: onDownload, show: file.type !== "folder" },
@@ -50,9 +65,47 @@ export default function ContextMenu({
         onClose();
     };
 
-    // Adjust position to keep menu in viewport
+    // Adjust position to keep menu in viewport (desktop only)
     const adjustedX = Math.min(x, window.innerWidth - 220);
     const adjustedY = Math.min(y, window.innerHeight - 350);
+
+    if (isMobile) {
+        return (
+            <>
+                <div className="context-menu-overlay mobile-sheet-overlay" onClick={onClose} />
+                <div className="context-menu-bottom-sheet">
+                    <div className="bottom-sheet-header">
+                        <div className="bottom-sheet-handle" />
+                        <div className="bottom-sheet-title">
+                            <span className="bottom-sheet-filename">{file.name}</span>
+                            <button className="bottom-sheet-close" onClick={onClose}>
+                                <X size={20} />
+                            </button>
+                        </div>
+                    </div>
+                    <div className="bottom-sheet-items">
+                        {menuItems.map((item, index) => {
+                            if (item.divider) {
+                                return <div key={index} className="context-menu-divider" />;
+                            }
+                            if (item.show === false) return null;
+                            const Icon = item.icon;
+                            return (
+                                <button
+                                    key={index}
+                                    className={`bottom-sheet-item ${item.danger ? "danger" : ""}`}
+                                    onClick={() => handleClick(item.action)}
+                                >
+                                    <Icon size={20} />
+                                    <span>{item.label}</span>
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
+            </>
+        );
+    }
 
     return (
         <>
