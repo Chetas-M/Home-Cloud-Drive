@@ -30,6 +30,7 @@ async def run_migrations():
         ("files", "version", "ALTER TABLE files ADD COLUMN version INTEGER DEFAULT 1"),
         ("activity_logs", "ip_address", "ALTER TABLE activity_logs ADD COLUMN ip_address VARCHAR(64)"),
         ("activity_logs", "details", "ALTER TABLE activity_logs ADD COLUMN details TEXT"),
+        ("share_links", "last_accessed_at", "ALTER TABLE share_links ADD COLUMN last_accessed_at DATETIME"),
     ]
     
     async with engine.begin() as conn:
