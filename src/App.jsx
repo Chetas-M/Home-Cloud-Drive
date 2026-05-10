@@ -20,6 +20,7 @@ import ShareModal from "./components/ShareModal";
 import SharedFolderModal from "./components/SharedFolderModal";
 import SecurityModal from "./components/SecurityModal";
 import VersionHistoryModal from "./components/VersionHistoryModal";
+import BulkActionBar from "./components/BulkActionBar";
 import api from "./api";
 
 export default function App() {
@@ -75,6 +76,8 @@ export default function App() {
     const [versions, setVersions] = useState([]);
     const [versionsLoading, setVersionsLoading] = useState(false);
     const [versionError, setVersionError] = useState("");
+    const [bulkLoading, setBulkLoading] = useState(false);
+    const [bulkMoveMode, setBulkMoveMode] = useState(false);
 
     /* ---------------- AUTH CHECK ---------------- */
     useEffect(() => {
@@ -692,6 +695,105 @@ export default function App() {
         }
     };
 
+    /* ---------------- BULK OPERATIONS ---------------- */
+    const handleBulkTrash = async () => {
+        if (!confirm(`Move ${selectedIds.size} items to trash?`)) return;
+        setBulkLoading(true);
+        try {
+            await api.bulkAction(Array.from(selectedIds), 'trash');
+            setSelectedIds(new Set());
+            setIsMultiSelect(false);
+            setSearchRefreshKey(k => k + 1);
+            await loadFiles();
+            await loadExtra();
+        } catch (err) {
+            alert(err.message || 'Bulk trash failed');
+        } finally {
+            setBulkLoading(false);
+        }
+    };
+
+    const handleBulkRestore = async (ids) => {
+        const restoreIds = ids || Array.from(selectedIds);
+        setBulkLoading(true);
+        try {
+            await api.bulkAction(restoreIds, 'restore');
+            setSelectedIds(new Set());
+            setIsMultiSelect(false);
+            setSearchRefreshKey(k => k + 1);
+            await loadFiles();
+            const trashData = await api.listFiles([], { includeTrash: true });
+            setTrashedFiles(trashData.filter(f => f.is_trashed));
+        } catch (err) {
+            alert(err.message || 'Bulk restore failed');
+        } finally {
+            setBulkLoading(false);
+        }
+    };
+
+    const handleBulkCopy = async () => {
+        setBulkLoading(true);
+        try {
+            await api.bulkAction(Array.from(selectedIds), 'copy');
+            setSelectedIds(new Set());
+            setIsMultiSelect(false);
+            setSearchRefreshKey(k => k + 1);
+            await loadFiles();
+            await loadExtra();
+        } catch (err) {
+            alert(err.message || 'Bulk copy failed');
+        } finally {
+            setBulkLoading(false);
+        }
+    };
+
+    const handleBulkMove = () => {
+        // Open the move modal for the first selected file (shared modal)
+        const firstId = Array.from(selectedIds)[0];
+        const firstFile = files.find(f => f.id === firstId);
+        if (firstFile) {
+            setBulkMoveMode(true);
+            setMoveFile(firstFile);
+        }
+    };
+
+    const handleBulkMoveConfirm = async (id, newPath) => {
+        if (bulkMoveMode) {
+            setBulkLoading(true);
+            try {
+                await api.bulkAction(Array.from(selectedIds), 'move', { targetPath: newPath });
+                setSelectedIds(new Set());
+                setIsMultiSelect(false);
+                setBulkMoveMode(false);
+                setSearchRefreshKey(k => k + 1);
+                await loadFiles();
+                await loadExtra();
+            } catch (err) {
+                alert(err.message || 'Bulk move failed');
+            } finally {
+                setBulkLoading(false);
+            }
+        } else {
+            await handleMove(id, newPath);
+        }
+    };
+
+    const handleBulkDownload = async () => {
+        // Download each selected file sequentially
+        for (const id of selectedIds) {
+            const file = files.find(f => f.id === id);
+            if (file && file.type !== 'folder') {
+                await downloadFile(file);
+            }
+        }
+    };
+
+    const handleBulkShare = () => {
+        const firstId = Array.from(selectedIds)[0];
+        const firstFile = files.find(f => f.id === firstId);
+        if (firstFile) setShareFile(firstFile);
+    };
+
     /* ---------------- SELECTION ---------------- */
     const handleSelect = (id) => {
         setSelectedIds((prev) => {
@@ -993,6 +1095,7 @@ export default function App() {
                             onRestore={handleRestore}
                             onDeletePermanently={handleDeletePermanently}
                             onEmptyTrash={handleEmptyTrash}
+                            onBulkRestore={handleBulkRestore}
                         />
                     ) : currentView === "activity" ? (
                         <ActivityLog activities={activityLog} />
@@ -1077,6 +1180,27 @@ export default function App() {
                 </div>
 
                 <UploadProgress uploads={uploadProgress} onCancel={cancelUpload} />
+
+                {/* Bulk Action Bar */}
+                {isMultiSelect && selectedIds.size > 0 && currentView !== "trash" && (
+                    <BulkActionBar
+                        selectedCount={selectedIds.size}
+                        selectedIds={selectedIds}
+                        files={files}
+                        currentView={currentView}
+                        onBulkTrash={handleBulkTrash}
+                        onBulkRestore={() => handleBulkRestore()}
+                        onBulkCopy={handleBulkCopy}
+                        onBulkMove={handleBulkMove}
+                        onBulkDownload={handleBulkDownload}
+                        onBulkShare={handleBulkShare}
+                        onClearSelection={() => {
+                            setSelectedIds(new Set());
+                            setIsMultiSelect(false);
+                        }}
+                        loading={bulkLoading}
+                    />
+                )}
             </main>
 
             {/* Details Panel */}
@@ -1147,8 +1271,8 @@ export default function App() {
                     file={moveFile}
                     folders={files.filter((f) => f.type === "folder")}
                     currentPath={moveFile.path}
-                    onClose={() => setMoveFile(null)}
-                    onMove={handleMove}
+                    onClose={() => { setMoveFile(null); setBulkMoveMode(false); }}
+                    onMove={handleBulkMoveConfirm}
                 />
             )}
 
