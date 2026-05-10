@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { X, Download, ChevronLeft, ChevronRight } from "lucide-react";
 import api from "../api";
 
@@ -12,6 +12,11 @@ export default function FilePreviewModal({
     const [textContent, setTextContent] = useState(null);
     const [textLoading, setTextLoading] = useState(false);
     const [previewUrl, setPreviewUrl] = useState(null);
+
+    // Touch swipe state
+    const touchStartRef = useRef(null);
+    const touchDeltaRef = useRef(0);
+    const contentRef = useRef(null);
 
     // Fetch text content when previewing text files
     useEffect(() => {
@@ -69,6 +74,47 @@ export default function FilePreviewModal({
         window.addEventListener("keydown", handleKeyDown);
         return () => window.removeEventListener("keydown", handleKeyDown);
     }, [onClose, onNavigate]);
+
+    // Touch swipe handlers for mobile navigation
+    const handleTouchStart = (e) => {
+        if (!onNavigate) return;
+        const touch = e.touches[0];
+        touchStartRef.current = { x: touch.clientX, y: touch.clientY, time: Date.now() };
+        touchDeltaRef.current = 0;
+    };
+
+    const handleTouchMove = (e) => {
+        if (!touchStartRef.current || !onNavigate) return;
+        const touch = e.touches[0];
+        const dx = touch.clientX - touchStartRef.current.x;
+        const dy = touch.clientY - touchStartRef.current.y;
+
+        // Only track horizontal swipes (prevent vertical scroll interference)
+        if (Math.abs(dx) > Math.abs(dy) * 1.5) {
+            e.preventDefault();
+            touchDeltaRef.current = dx;
+        }
+    };
+
+    const handleTouchEnd = () => {
+        if (!touchStartRef.current || !onNavigate) return;
+        const dx = touchDeltaRef.current;
+        const elapsed = Date.now() - touchStartRef.current.time;
+
+        // Swipe threshold: 60px or fast swipe (100px/s)
+        const isSwipe = Math.abs(dx) > 60 || (Math.abs(dx) > 30 && elapsed < 300);
+
+        if (isSwipe) {
+            if (dx > 0) {
+                onNavigate("prev");
+            } else {
+                onNavigate("next");
+            }
+        }
+
+        touchStartRef.current = null;
+        touchDeltaRef.current = 0;
+    };
 
     const renderContent = () => {
         // Text files: fetch content and display in <pre>
@@ -146,8 +192,14 @@ export default function FilePreviewModal({
                     </div>
                 </div>
 
-                {/* Content */}
-                <div className="preview-content">
+                {/* Content with touch swipe support */}
+                <div
+                    className="preview-content"
+                    ref={contentRef}
+                    onTouchStart={handleTouchStart}
+                    onTouchMove={handleTouchMove}
+                    onTouchEnd={handleTouchEnd}
+                >
                     {onNavigate && (
                         <button
                             className="preview-nav prev"
@@ -168,8 +220,14 @@ export default function FilePreviewModal({
                         </button>
                     )}
                 </div>
+
+                {/* Mobile swipe hint */}
+                {onNavigate && files && files.length > 1 && (
+                    <div className="preview-swipe-hint">
+                        Swipe to navigate • {files.findIndex(f => f.id === file.id) + 1} of {files.length}
+                    </div>
+                )}
             </div>
         </div>
     );
 }
-
