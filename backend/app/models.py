@@ -108,6 +108,7 @@ class ShareLink(Base):
     max_downloads = Column(Integer, nullable=True)
     download_count = Column(Integer, default=0)
     is_active = Column(Boolean, default=True)
+    last_accessed_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     # Relationships
@@ -163,3 +164,16 @@ class UserSession(Base):
     is_suspicious = Column(Boolean, default=False)
 
     user = relationship("User", back_populates="sessions")
+
+
+class ShareAccessLog(Base):
+    __tablename__ = "share_access_logs"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    share_link_id = Column(String(36), ForeignKey("share_links.id", ondelete="CASCADE"), nullable=False, index=True)
+    action = Column(String(20), nullable=False, default="download")  # view | download
+    ip_address = Column(String(64), nullable=True)
+    user_agent = Column(Text, nullable=True)
+    accessed_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    share_link = relationship("ShareLink")
