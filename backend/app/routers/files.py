@@ -31,6 +31,7 @@ from app.schemas import (
     ChunkedUploadInitResponse,
     ChunkedUploadCompleteRequest,
     ChunkedUploadStatusResponse,
+    BulkActionRequest,
 )
 from app.auth import get_current_user
 from app.config import get_settings
@@ -1927,3 +1928,122 @@ async def get_thumbnail(
         media_type="image/jpeg",
         headers={"Cache-Control": "public, max-age=86400"}
     )
+
+
+@router.post("/bulk", status_code=status.HTTP_200_OK)
+@limiter.limit("10/minute")
+async def bulk_action(
+    request: Request,
+    body: BulkActionRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Perform a bulk action on multiple files (trash, restore, copy, move)."""
+    results = {"succeeded": [], "failed": []}
+
+    # Fetch all requested files that belong to the current user
+    file_result = await db.execute(
+        select(FileModel).where(
+            and_(
+                FileModel.id.in_(body.file_ids),
+                FileModel.owner_id == current_user.id,
+            )
+        )
+    )
+    found_files = {f.id: f for f in file_result.scalars().all()}
+
+    for fid in body.file_ids:
+        if fid not in found_files:
+            results["failed"].append({"id": fid, "error": "Not found"})
+            continue
+
+        file = found_files[fid]
+        try:
+            if body.action == "trash":
+                if not file.is_trashed:
+                    file.is_trashed = True
+                    file.trashed_at = datetime.now(timezone.utc)
+                    db.add(ActivityLog(
+                        user_id=current_user.id,
+                        action="trash",
+                        file_name=file.name,
+                    ))
+                results["succeeded"].append(fid)
+
+            elif body.action == "restore":
+                if file.is_trashed:
+                    file.is_trashed = False
+                    file.trashed_at = None
+                    db.add(ActivityLog(
+                        user_id=current_user.id,
+                        action="restore",
+                        file_name=file.name,
+                    ))
+                results["succeeded"].append(fid)
+
+            elif body.action == "copy":
+                if file.type == "folder":
+                    results["failed"].append({"id": fid, "error": "Cannot copy folders"})
+                    continue
+
+                new_id = str(uuid.uuid4())
+                new_name = f"Copy of {file.name}"
+                new_storage = None
+
+                if file.storage_path and os.path.exists(file.storage_path):
+                    ext = file.name.split('.')[-1] if '.' in file.name else ''
+                    new_filename = f"{new_id}.{ext}" if ext else new_id
+                    user_dir = os.path.join(settings.storage_path, current_user.id)
+                    os.makedirs(user_dir, exist_ok=True)
+                    new_storage = os.path.join(user_dir, new_filename)
+                    import shutil
+                    shutil.copy2(file.storage_path, new_storage)
+
+                now = datetime.now(timezone.utc)
+                new_file = FileModel(
+                    id=new_id,
+                    name=new_name,
+                    type=file.type,
+                    mime_type=file.mime_type,
+                    size=file.size,
+                    path=file.path,
+                    storage_path=new_storage,
+                    owner_id=current_user.id,
+                    version=1,
+                    is_starred=False,
+                    is_trashed=False,
+                    created_at=now,
+                    updated_at=now,
+                )
+                db.add(new_file)
+                current_user.storage_used += file.size or 0
+                db.add(ActivityLog(
+                    user_id=current_user.id,
+                    action="copy",
+                    file_name=file.name,
+                ))
+                results["succeeded"].append(fid)
+
+            elif body.action == "move":
+                if body.target_path is None:
+                    results["failed"].append({"id": fid, "error": "target_path required"})
+                    continue
+                target_path = normalize_tree_path(body.target_path)
+                file.path = serialize_path(target_path)
+                file.updated_at = datetime.now(timezone.utc)
+                db.add(ActivityLog(
+                    user_id=current_user.id,
+                    action="move",
+                    file_name=file.name,
+                ))
+                results["succeeded"].append(fid)
+
+            elif body.action == "download":
+                # Download action is handled client-side by iterating
+                results["succeeded"].append(fid)
+
+        except Exception as e:
+            results["failed"].append({"id": fid, "error": str(e)})
+
+    await db.flush()
+    return results
