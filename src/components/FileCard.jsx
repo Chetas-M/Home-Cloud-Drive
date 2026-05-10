@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
     Folder,
     Image,
@@ -51,6 +51,11 @@ export default function FileCard({
     const [thumbnail, setThumbnail] = useState(null);
     const [isDragOver, setIsDragOver] = useState(false);
 
+    // Long-press state for touch context menu
+    const longPressTimer = useRef(null);
+    const touchStartPos = useRef(null);
+    const didLongPress = useRef(false);
+
     // Use server thumbnail if available, fallback to client blob
     useEffect(() => {
         let revoke = null;
@@ -69,6 +74,10 @@ export default function FileCard({
     }, [file]);
 
     const handleClick = (e) => {
+        if (didLongPress.current) {
+            didLongPress.current = false;
+            return;
+        }
         if (isMultiSelect) {
             e.stopPropagation();
             onSelect?.(file.id);
@@ -96,6 +105,42 @@ export default function FileCard({
     const handleCheckbox = (e) => {
         e.stopPropagation();
         onSelect?.(file.id);
+    };
+
+    /* --- Touch long-press for context menu on mobile --- */
+    const handleTouchStart = (e) => {
+        didLongPress.current = false;
+        const touch = e.touches[0];
+        touchStartPos.current = { x: touch.clientX, y: touch.clientY };
+        longPressTimer.current = setTimeout(() => {
+            didLongPress.current = true;
+            // Synthesize a context menu event at the touch position
+            const syntheticEvent = {
+                preventDefault: () => {},
+                clientX: touchStartPos.current.x,
+                clientY: touchStartPos.current.y,
+            };
+            onContextMenu?.(syntheticEvent, file);
+            // Provide haptic feedback if available
+            if (navigator.vibrate) navigator.vibrate(30);
+        }, 500);
+    };
+
+    const handleTouchMove = (e) => {
+        if (!touchStartPos.current) return;
+        const touch = e.touches[0];
+        const dx = Math.abs(touch.clientX - touchStartPos.current.x);
+        const dy = Math.abs(touch.clientY - touchStartPos.current.y);
+        // Cancel long press if finger moved more than 10px
+        if (dx > 10 || dy > 10) {
+            clearTimeout(longPressTimer.current);
+            longPressTimer.current = null;
+        }
+    };
+
+    const handleTouchEnd = () => {
+        clearTimeout(longPressTimer.current);
+        longPressTimer.current = null;
     };
 
     /* --- Drag: make non-folder files draggable --- */
@@ -139,6 +184,10 @@ export default function FileCard({
             onClick={handleClick}
             onDoubleClick={handleDoubleClick}
             onContextMenu={handleContextMenu}
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+            onTouchCancel={handleTouchEnd}
             style={{ animationDelay: `${index * 0.03}s` }}
             draggable={!isFolder}
             onDragStart={handleDragStart}
