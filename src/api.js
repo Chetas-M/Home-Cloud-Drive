@@ -779,6 +779,65 @@ class ApiService {
         const blob = await response.blob();
         return URL.createObjectURL(blob);
     }
+
+    // ============ BULK OPERATIONS ============
+    async bulkAction(fileIds, action, options = {}) {
+        const body = {
+            file_ids: fileIds,
+            action,
+        };
+        if (options.targetPath !== undefined && options.targetPath !== null) {
+            body.target_path = options.targetPath;
+        }
+        return this.request('/files/bulk', {
+            method: 'POST',
+            body: JSON.stringify(body),
+        });
+    }
+
+    // ============ SHARE ANALYTICS ============
+    async getShareAnalytics(linkId) {
+        return this.request(`/share/${linkId}/analytics`);
+    }
+
+    // ============ UPLOAD QUEUE PERSISTENCE ============
+    getUploadQueueKey() {
+        return 'hcd.uploadQueue';
+    }
+
+    saveUploadQueue(queue) {
+        try {
+            // Only save metadata, not the File objects (those can't be serialized)
+            const serializable = queue.map(item => ({
+                id: item.id,
+                name: item.name,
+                size: item.size,
+                path: item.path,
+                status: item.status,
+                addedAt: item.addedAt,
+            }));
+            localStorage.setItem(this.getUploadQueueKey(), JSON.stringify(serializable));
+        } catch (err) {
+            // Ignore storage quota errors
+        }
+    }
+
+    loadUploadQueue() {
+        try {
+            const data = localStorage.getItem(this.getUploadQueueKey());
+            return data ? JSON.parse(data) : [];
+        } catch (err) {
+            return [];
+        }
+    }
+
+    clearUploadQueue() {
+        try {
+            localStorage.removeItem(this.getUploadQueueKey());
+        } catch (err) {
+            // Ignore
+        }
+    }
 }
 
 export const api = new ApiService();

@@ -31,6 +31,7 @@ from app.schemas import (
     ChunkedUploadInitResponse,
     ChunkedUploadCompleteRequest,
     ChunkedUploadStatusResponse,
+    BulkActionRequest,
 )
 from app.auth import get_current_user
 from app.config import get_settings
@@ -1927,3 +1928,84 @@ async def get_thumbnail(
         media_type="image/jpeg",
         headers={"Cache-Control": "public, max-age=86400"}
     )
+
+
+@router.post("/bulk", status_code=status.HTTP_200_OK)
+@limiter.limit("10/minute")
+async def bulk_action(
+    request: Request,
+    body: BulkActionRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Perform a bulk action on multiple files (trash, restore, copy, move)."""
+    results = {"succeeded": [], "failed": []}
+
+    # Fetch all requested files that belong to the current user
+    file_result = await db.execute(
+        select(FileModel).where(
+            and_(
+                FileModel.id.in_(body.file_ids),
+                FileModel.owner_id == current_user.id,
+            )
+        )
+    )
+    found_files = {f.id: f for f in file_result.scalars().all()}
+
+    for fid in body.file_ids:
+        if fid not in found_files:
+            results["failed"].append({"id": fid, "error": "Not found"})
+            continue
+
+        try:
+            if body.action == "trash":
+                await trash_file(
+                    request=request,
+                    file_id=fid,
+                    current_user=current_user,
+                    db=db,
+                )
+                results["succeeded"].append(fid)
+
+            elif body.action == "restore":
+                await restore_file(
+                    request=request,
+                    file_id=fid,
+                    current_user=current_user,
+                    db=db,
+                )
+                results["succeeded"].append(fid)
+
+            elif body.action == "copy":
+                await copy_file(
+                    request=request,
+                    file_id=fid,
+                    current_user=current_user,
+                    db=db,
+                )
+                results["succeeded"].append(fid)
+
+            elif body.action == "move":
+                if body.target_path is None:
+                    results["failed"].append({"id": fid, "error": "target_path required"})
+                    continue
+                await update_file(
+                    request=request,
+                    file_id=fid,
+                    update=FileUpdate(path=body.target_path),
+                    current_user=current_user,
+                    db=db,
+                )
+                results["succeeded"].append(fid)
+
+            elif body.action == "download":
+                # Download action is handled client-side by iterating
+                results["succeeded"].append(fid)
+
+        except HTTPException as e:
+            results["failed"].append({"id": fid, "error": e.detail})
+        except Exception as e:
+            results["failed"].append({"id": fid, "error": str(e)})
+
+    await db.flush()
+    return results

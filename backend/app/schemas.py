@@ -289,9 +289,38 @@ class ShareLinkResponse(BaseModel):
     is_active: bool
     created_at: datetime
     share_url: str = ""
+    last_accessed_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
+
+
+class ShareAccessLogResponse(BaseModel):
+    id: str
+    action: str
+    ip_address: Optional[str] = None
+    user_agent: Optional[str] = None
+    accessed_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class ShareAnalyticsResponse(BaseModel):
+    link_id: str
+    file_name: str = ""
+    permission: str
+    total_downloads: int = 0
+    total_views: int = 0
+    last_accessed_at: Optional[datetime] = None
+    created_at: datetime
+    access_history: List["ShareAccessLogResponse"] = Field(default_factory=list)
+
+
+class BulkActionRequest(BaseModel):
+    file_ids: List[str] = Field(..., min_length=1, max_length=200)
+    action: Literal["trash", "restore", "copy", "move", "download"]
+    target_path: Optional[List[str]] = None  # for move action
 
 
 class SharedFolderInviteCreate(BaseModel):

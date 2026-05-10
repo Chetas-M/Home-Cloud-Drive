@@ -13,8 +13,8 @@ from pydantic import BaseModel
 
 from app.database import get_db
 from app.limiter import limiter
-from app.models import User, File as FileModel, ShareLink, ActivityLog
-from app.schemas import ShareLinkCreate, ShareLinkResponse
+from app.models import User, File as FileModel, ShareLink, ActivityLog, ShareAccessLog
+from app.schemas import ShareLinkCreate, ShareLinkResponse, ShareAnalyticsResponse, ShareAccessLogResponse
 from app.auth import get_current_user, get_password_hash, verify_password
 from app.config import get_settings
 from app.routers.files import build_content_disposition
@@ -116,6 +116,7 @@ async def create_share_link(
         is_active=share_link.is_active,
         created_at=share_link.created_at,
         share_url=f"/shared/{share_link.token}",
+        last_accessed_at=share_link.last_accessed_at,
     )
 
 
@@ -149,6 +150,7 @@ async def get_my_share_links(
             is_active=link.is_active,
             created_at=link.created_at,
             share_url=f"/shared/{link.token}",
+            last_accessed_at=link.last_accessed_at,
         ))
     return links
 
@@ -218,6 +220,21 @@ async def access_shared_file(
         if not verify_password(password, link.password_hash):
             raise HTTPException(status_code=401, detail="Incorrect password")
 
+    now = datetime.now(timezone.utc)
+    db.add(ShareAccessLog(
+        share_link_id=link.id,
+        action="view",
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent", "")[:500],
+        accessed_at=now,
+    ))
+    await db.execute(
+        update(ShareLink)
+        .where(ShareLink.id == link.id)
+        .values(last_accessed_at=now)
+    )
+    await db.flush()
+
     # Return file info for view permission
     return {
         "file_name": file.name,
@@ -280,12 +297,83 @@ async def download_shared_file(
 
     await reserve_share_download_slot(db, link)
 
+    # Log access for analytics
+    now = datetime.now(timezone.utc)
+    access_log = ShareAccessLog(
+        share_link_id=link.id,
+        action="download",
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent", "")[:500],
+        accessed_at=now,
+    )
+    db.add(access_log)
+    # Update last_accessed_at on the link
+    await db.execute(
+        update(ShareLink)
+        .where(ShareLink.id == link.id)
+        .values(last_accessed_at=now)
+    )
+    await db.flush()
+
     return FileResponse(
         path=file.storage_path,
         media_type=file.mime_type or "application/octet-stream",
         headers={
             "Content-Disposition": build_content_disposition("attachment", file.name)
         }
+    )
+
+
+@router.get("/{link_id}/analytics", response_model=ShareAnalyticsResponse)
+async def get_share_analytics(
+    link_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get analytics for a share link (access history, download counts, etc.)"""
+    result = await db.execute(
+        select(ShareLink, FileModel.name)
+        .join(FileModel, ShareLink.file_id == FileModel.id)
+        .where(
+            and_(ShareLink.id == link_id, ShareLink.owner_id == current_user.id)
+        )
+    )
+    row = result.first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Share link not found")
+
+    link, file_name = row[0], row[1]
+
+    # Fetch access history (last 100 entries)
+    access_result = await db.execute(
+        select(ShareAccessLog)
+        .where(ShareAccessLog.share_link_id == link_id)
+        .order_by(ShareAccessLog.accessed_at.desc())
+        .limit(100)
+    )
+    access_logs = access_result.scalars().all()
+
+    # Downloads are tracked atomically on ShareLink.download_count during download access.
+    total_views = sum(1 for log in access_logs if log.action == "view")
+
+    return ShareAnalyticsResponse(
+        link_id=link.id,
+        file_name=file_name,
+        permission=link.permission,
+        total_downloads=link.download_count,
+        total_views=total_views,
+        last_accessed_at=link.last_accessed_at,
+        created_at=link.created_at,
+        access_history=[
+            ShareAccessLogResponse(
+                id=log.id,
+                action=log.action,
+                ip_address=log.ip_address,
+                user_agent=log.user_agent,
+                accessed_at=log.accessed_at,
+            )
+            for log in access_logs
+        ],
     )
 
 
