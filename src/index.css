@@ -4844,8 +4844,13 @@ body {
   color: var(--text-primary);
 }
 
+@keyframes bulkActionSpin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 .spin {
-  animation: spin 1s linear infinite;
+  animation: bulkActionSpin 1s linear infinite;
 }
 
 
