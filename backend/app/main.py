@@ -12,6 +12,8 @@ from app.config import get_settings
 from app.database import init_db, engine
 from app.limiter import limiter
 from app.routers import auth, files, folders, storage
+from app.job_queue import job_queue, configure_store
+from app.job_handlers import register_all_handlers
 
 settings = get_settings()
 
@@ -280,6 +282,15 @@ async def lifespan(app: FastAPI):
     # Create directories
     os.makedirs(settings.storage_path, exist_ok=True)
     os.makedirs("./data", exist_ok=True)
+
+    # --------------- Background Job Queue ---------------
+    # Register handlers and configure the persistent job store
+    register_all_handlers()
+    configure_store("./data/jobs.json")
+    await job_queue.start()
+    app.state.job_queue = job_queue
+    print("[+] Background job queue started")
+    # -----------------------------------------------------
     
     # Initialize database (creates new tables)
     await init_db()
@@ -296,8 +307,9 @@ async def lifespan(app: FastAPI):
     backfill_task.add_done_callback(_backfill_done_callback)
     app.state.backfill_task = backfill_task
     
-    # Auto-cleanup old trashed files
-    await cleanup_old_trash()
+    # Schedule maintenance jobs through the queue (observable + retriable)
+    await job_queue.enqueue("trash_cleanup", {}, max_attempts=1)
+    await job_queue.enqueue("log_cleanup", {}, max_attempts=1)
 
     cleanup_stop_event = asyncio.Event()
     cleanup_task = asyncio.create_task(run_activity_log_cleanup_loop(cleanup_stop_event))
@@ -324,6 +336,9 @@ async def lifespan(app: FastAPI):
             await cleanup_task
         except asyncio.CancelledError:
             pass
+
+    # Gracefully drain the job queue
+    await job_queue.shutdown(timeout=15.0)
     print("[*] Shutting down Home Cloud Drive API...")
 
 
@@ -370,6 +385,31 @@ app.include_router(shared_folders.router)
 @app.get("/")
 async def root():
     return {"status": "ok"}
+
+
+# ---------------------------------------------------------------------------
+# Job Queue API
+# ---------------------------------------------------------------------------
+
+@app.get("/api/jobs/stats")
+async def get_job_stats(request: Request):
+    """Return queue statistics and per-type failure/success counters."""
+    client_ip = request.client.host if request.client else ""
+    if client_ip not in ("127.0.0.1", "::1"):
+        raise HTTPException(status_code=404)
+    return job_queue.stats()
+
+
+@app.get("/api/jobs/{job_id}")
+async def get_job_status(job_id: str, request: Request):
+    """Return the status of a specific background job."""
+    client_ip = request.client.host if request.client else ""
+    if client_ip not in ("127.0.0.1", "::1"):
+        raise HTTPException(status_code=404)
+    status = await job_queue.get_status(job_id)
+    if status is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return status
 
 
 @app.get("/health")
