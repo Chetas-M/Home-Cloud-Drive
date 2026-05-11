@@ -49,6 +49,7 @@ from app.shared_access import (
 )
 from app.thumbnails import generate_thumbnail, can_generate_thumbnail
 from app.tree_validation import normalize_tree_path, sanitize_tree_name, ensure_folder_path_exists
+from app.job_queue import job_queue
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -637,25 +638,29 @@ async def upload_files(
         
         # Get mime type
         mime_type = file.content_type or mimetypes.guess_type(safe_filename)[0]
-        
-        # Generate thumbnail for images
-        thumb_path = None
-        if can_generate_thumbnail(safe_filename):
-            thumb_dir = os.path.join(user_storage_path, "thumbnails")
-            thumb_path = generate_thumbnail(storage_filepath, thumb_dir, file_id)
+        file_type = get_file_type(safe_filename, mime_type)
+
+        # For small text files, index inline so search works immediately.
+        # For larger or binary files, defer to a background job so the upload
+        # response is not blocked by expensive extraction or OCR.
+        _INLINE_INDEX_LIMIT = 64 * 1024  # 64 KB
+        if file_size <= _INLINE_INDEX_LIMIT:
+            inline_index = build_search_document(storage_filepath, safe_filename, mime_type, file_type)
+        else:
+            inline_index = None  # will be populated by background job
         
         # Create database entry with explicit defaults
         now = datetime.now(timezone.utc)
         new_file = FileModel(
             id=file_id,
             name=safe_filename,
-            type=get_file_type(safe_filename, mime_type),
+            type=file_type,
             mime_type=mime_type,
             size=file_size,
             path=serialize_path(target_path),
             storage_path=storage_filepath,
-            content_index=build_search_document(storage_filepath, safe_filename, mime_type, get_file_type(safe_filename, mime_type)),
-            thumbnail_path=thumb_path,
+            content_index=inline_index,  # None signals backfill/job needed
+            thumbnail_path=None,          # set by background job
             owner_id=target_owner.id,
             is_starred=False,
             is_trashed=False,
@@ -692,6 +697,27 @@ async def upload_files(
             else None
         )
         uploaded_files.append(to_file_response(new_file, access_ctx, path_override=response_path))
+
+        # Enqueue background post-processing jobs
+        if can_generate_thumbnail(safe_filename):
+            thumb_dir = os.path.join(user_storage_path, "thumbnails")
+            await job_queue.enqueue(
+                "thumbnail",
+                {"file_id": file_id, "storage_path": storage_filepath, "thumbnail_dir": thumb_dir},
+                max_attempts=3,
+            )
+        if inline_index is None:  # large/binary files need background indexing
+            await job_queue.enqueue(
+                "search_index",
+                {
+                    "file_id": file_id,
+                    "storage_path": storage_filepath,
+                    "filename": safe_filename,
+                    "mime_type": mime_type,
+                    "file_type": file_type,
+                },
+                max_attempts=2,
+            )
     
     await db.flush()
     return uploaded_files
@@ -980,24 +1006,20 @@ async def complete_chunked_upload(
 
     # Guess mime type if not provided
     mime_type = complete_req.mime_type or metadata.get("mime_type") or mimetypes.guess_type(safe_filename)[0]
+    file_type = get_file_type(safe_filename, mime_type)
 
-    # Generate thumbnail
-    thumb_path = None
-    if can_generate_thumbnail(safe_filename):
-        thumb_dir = os.path.join(user_storage_path, "thumbnails")
-        thumb_path = generate_thumbnail(final_storage_filepath, thumb_dir, file_id)
-
-    # Create DB entry
+    # Create DB entry (thumbnail + search index filled by background jobs)
     now = datetime.now(timezone.utc)
     new_file = FileModel(
         id=file_id,
         name=safe_filename,
-        type=get_file_type(safe_filename, mime_type),
+        type=file_type,
         mime_type=mime_type,
         size=assembled_size,
         path=serialize_path(target_path),
         storage_path=final_storage_filepath,
-        thumbnail_path=thumb_path,
+        thumbnail_path=None,   # populated by background job
+        content_index=None,    # populated by background job
         owner_id=target_owner.id,
         is_starred=False,
         is_trashed=False,
@@ -1026,6 +1048,26 @@ async def complete_chunked_upload(
     db.add(activity)
     
     await db.flush()
+
+    # Enqueue post-processing jobs
+    if can_generate_thumbnail(safe_filename):
+        thumb_dir = os.path.join(user_storage_path, "thumbnails")
+        await job_queue.enqueue(
+            "thumbnail",
+            {"file_id": file_id, "storage_path": final_storage_filepath, "thumbnail_dir": thumb_dir},
+            max_attempts=3,
+        )
+    await job_queue.enqueue(
+        "search_index",
+        {
+            "file_id": file_id,
+            "storage_path": final_storage_filepath,
+            "filename": safe_filename,
+            "mime_type": mime_type,
+            "file_type": file_type,
+        },
+        max_attempts=2,
+    )
 
     response_path = (
         relative_path_within_shared_root(new_file, access_ctx.shared_root)
