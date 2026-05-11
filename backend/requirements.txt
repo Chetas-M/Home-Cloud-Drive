@@ -13,3 +13,11 @@ aiofiles==23.2.1
 email-validator==2.1.0
 Pillow==12.2.0
 slowapi==0.1.9
+
+# -------------------------------------------------------------------
+# Rich Search Indexing (optional)
+# Install with:
+#   pip install -r backend/requirements-rich-search.txt
+# -------------------------------------------------------------------
+# OCR support is also optional and can be installed separately:
+#   pip install pytesseract

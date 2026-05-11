@@ -47,9 +47,10 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512M
+          # Increased for PDF/Office rich-text extraction and job queue workers
+          memory: 768M
         reservations:
-          memory: 128M
+          memory: 192M
 
     healthcheck:
       test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" ]
