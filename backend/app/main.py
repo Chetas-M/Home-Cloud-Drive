@@ -283,6 +283,14 @@ async def lifespan(app: FastAPI):
     os.makedirs(settings.storage_path, exist_ok=True)
     os.makedirs("./data", exist_ok=True)
 
+    # Initialize database (creates new tables)
+    await init_db()
+    print("[+] Database initialized")
+    
+    # Run migrations for new columns on existing tables
+    await run_migrations()
+    print("[+] Migrations complete")
+
     # --------------- Background Job Queue ---------------
     # Register handlers and configure the persistent job store
     register_all_handlers()
@@ -291,14 +299,6 @@ async def lifespan(app: FastAPI):
     app.state.job_queue = job_queue
     print("[+] Background job queue started")
     # -----------------------------------------------------
-    
-    # Initialize database (creates new tables)
-    await init_db()
-    print("[+] Database initialized")
-    
-    # Run migrations for new columns on existing tables
-    await run_migrations()
-    print("[+] Migrations complete")
 
     # Populate missing content indexes as a non-blocking background task.
     # Store the reference on app.state so it can be awaited/cancelled on shutdown
@@ -397,7 +397,7 @@ async def get_job_stats(request: Request):
     client_ip = request.client.host if request.client else ""
     if client_ip not in ("127.0.0.1", "::1"):
         raise HTTPException(status_code=404)
-    return job_queue.stats()
+    return await job_queue.stats()
 
 
 @app.get("/api/jobs/{job_id}")

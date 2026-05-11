@@ -34,7 +34,6 @@ queue.
 """
 from __future__ import annotations
 
-import io
 import logging
 import os
 import re
@@ -142,13 +141,31 @@ def _extract_docx(path: str) -> Optional[str]:
         import docx  # type: ignore[import]
         doc = docx.Document(path)
         parts: List[str] = []
+        char_count = 0
         for para in doc.paragraphs:
-            parts.append(para.text)
+            text = para.text or ""
+            if not text:
+                continue
+            parts.append(text)
+            char_count += len(text) + 1
+            if char_count >= MAX_INDEX_CHARS:
+                break
         # Also grab table cell text
-        for table in doc.tables:
-            for row in table.rows:
-                for cell in row.cells:
-                    parts.append(cell.text)
+        if char_count < MAX_INDEX_CHARS:
+            for table in doc.tables:
+                if char_count >= MAX_INDEX_CHARS:
+                    break
+                for row in table.rows:
+                    if char_count >= MAX_INDEX_CHARS:
+                        break
+                    for cell in row.cells:
+                        text = cell.text or ""
+                        if not text:
+                            continue
+                        parts.append(text)
+                        char_count += len(text) + 1
+                        if char_count >= MAX_INDEX_CHARS:
+                            break
         text = " ".join(parts)
         return _truncate(normalize_whitespace(text)) or None
     except ImportError:
@@ -164,11 +181,20 @@ def _extract_xlsx(path: str) -> Optional[str]:
         import openpyxl  # type: ignore[import]
         wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
         parts: List[str] = []
+        char_count = 0
         for ws in wb.worksheets:
+            if char_count >= MAX_INDEX_CHARS:
+                break
             for row in ws.iter_rows(values_only=True):
+                if char_count >= MAX_INDEX_CHARS:
+                    break
                 for cell in row:
                     if cell is not None:
-                        parts.append(str(cell))
+                        text = str(cell)
+                        parts.append(text)
+                        char_count += len(text) + 1
+                        if char_count >= MAX_INDEX_CHARS:
+                            break
         wb.close()
         text = " ".join(parts)
         return _truncate(normalize_whitespace(text)) or None

@@ -19,7 +19,7 @@ import logging
 import os
 from typing import Any, Dict
 
-from app.job_queue import register_handler, job_queue
+from app.job_queue import register_handler
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +65,12 @@ async def _handle_thumbnail(payload: Dict[str, Any]) -> None:
             await db.commit()
             logger.info("job/thumbnail: generated thumbnail for file %s", file_id)
         else:
-            logger.warning("job/thumbnail: file %s not found in DB, skipping DB update", file_id)
+            try:
+                if os.path.exists(thumb_path):
+                    os.remove(thumb_path)
+            except OSError:
+                logger.warning("job/thumbnail: failed to cleanup orphan thumbnail for %s", file_id)
+            raise LookupError(f"job/thumbnail: file {file_id} not found in DB")
 
 
 # ---------------------------------------------------------------------------
@@ -110,7 +115,7 @@ async def _handle_search_index(payload: Dict[str, Any]) -> None:
                 file_id, len(content or ""),
             )
         else:
-            logger.warning("job/search_index: file %s not found in DB", file_id)
+            raise LookupError(f"job/search_index: file {file_id} not found in DB")
 
 
 # ---------------------------------------------------------------------------

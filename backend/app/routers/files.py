@@ -61,6 +61,7 @@ _MAX_VERSION_RETRIES = 5
 CHUNK_SIZE = 1024 * 1024  # 1 MB chunks for streaming uploads
 RESUMABLE_CHUNK_SIZE = 5 * 1024 * 1024
 UPLOAD_METADATA_FILENAME = "upload.json"
+_BACKGROUND_JOB_START_DELAY_SECONDS = 1.0
 
 
 def sanitize_filename(filename: Optional[str]) -> str:
@@ -640,11 +641,12 @@ async def upload_files(
         mime_type = file.content_type or mimetypes.guess_type(safe_filename)[0]
         file_type = get_file_type(safe_filename, mime_type)
 
-        # For small text files, index inline so search works immediately.
-        # For larger or binary files, defer to a background job so the upload
+        # For small text-like files, index inline so search works immediately.
+        # For larger or non-text files, defer to a background job so the upload
         # response is not blocked by expensive extraction or OCR.
         _INLINE_INDEX_LIMIT = 64 * 1024  # 64 KB
-        if file_size <= _INLINE_INDEX_LIMIT:
+        can_inline_index = file_type == "text" or (mime_type or "").startswith("text/")
+        if can_inline_index and file_size <= _INLINE_INDEX_LIMIT:
             inline_index = build_search_document(storage_filepath, safe_filename, mime_type, file_type)
         else:
             inline_index = None  # will be populated by background job
@@ -705,6 +707,7 @@ async def upload_files(
                 "thumbnail",
                 {"file_id": file_id, "storage_path": storage_filepath, "thumbnail_dir": thumb_dir},
                 max_attempts=3,
+                run_after=datetime.now(timezone.utc).timestamp() + _BACKGROUND_JOB_START_DELAY_SECONDS,
             )
         if inline_index is None:  # large/binary files need background indexing
             await job_queue.enqueue(
@@ -717,6 +720,7 @@ async def upload_files(
                     "file_type": file_type,
                 },
                 max_attempts=2,
+                run_after=datetime.now(timezone.utc).timestamp() + _BACKGROUND_JOB_START_DELAY_SECONDS,
             )
     
     await db.flush()
@@ -1056,6 +1060,7 @@ async def complete_chunked_upload(
             "thumbnail",
             {"file_id": file_id, "storage_path": final_storage_filepath, "thumbnail_dir": thumb_dir},
             max_attempts=3,
+            run_after=datetime.now(timezone.utc).timestamp() + _BACKGROUND_JOB_START_DELAY_SECONDS,
         )
     await job_queue.enqueue(
         "search_index",
@@ -1067,6 +1072,7 @@ async def complete_chunked_upload(
             "file_type": file_type,
         },
         max_attempts=2,
+        run_after=datetime.now(timezone.utc).timestamp() + _BACKGROUND_JOB_START_DELAY_SECONDS,
     )
 
     response_path = (

@@ -101,7 +101,7 @@ def _backoff_seconds(job_type: str, attempt: int) -> float:
     schedule = JOB_RETRY_POLICY.get(job_type, _DEFAULT_BACKOFF_SECONDS)
     if not schedule:
         return 0.0
-    idx = min(attempt, len(schedule) - 1)
+    idx = min(max(0, attempt - 1), len(schedule) - 1)
     return float(schedule[idx])
 
 
@@ -294,14 +294,16 @@ class BackgroundJobQueue:
             "updated_at": datetime.fromtimestamp(job.updated_at, tz=timezone.utc).isoformat(),
         }
 
-    def stats(self) -> dict:
+    async def stats(self) -> dict:
         """Return aggregate queue statistics."""
         counts: Dict[str, int] = {}
-        for job in self._jobs.values():
+        async with self._jobs_lock:
+            jobs = list(self._jobs.values())
+        for job in jobs:
             counts[job.status] = counts.get(job.status, 0) + 1
         return {
             "queue_size": self._queue.qsize(),
-            "total_tracked": len(self._jobs),
+            "total_tracked": len(jobs),
             "by_status": counts,
             "failures_by_type": dict(job_failure_counters),
             "successes_by_type": dict(job_success_counters),
@@ -320,6 +322,7 @@ class BackgroundJobQueue:
                 continue
 
             if job is _SENTINEL_JOB:
+                self._queue.task_done()
                 break
 
             # Respect run_after (simple delay)
