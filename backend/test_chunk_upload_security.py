@@ -119,7 +119,7 @@ class ChunkUploadSecurityTests(unittest.IsolatedAsyncioTestCase):
         original_storage_path = files_router.settings.storage_path
         files_router.settings.storage_path = tempdir
         try:
-            user = SimpleNamespace(id="user-1", storage_quota=1024, storage_used=0)
+            user = SimpleNamespace(id="user-1", username="alice", storage_quota=1024, storage_used=0)
             upload_id = str(uuid.uuid4())
             session_dir = get_upload_temp_dir(user.id, upload_id)
             os.makedirs(session_dir, exist_ok=True)

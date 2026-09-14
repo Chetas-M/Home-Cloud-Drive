@@ -160,6 +160,7 @@ export default function FilePreviewModal({
                     src={previewUrl}
                     title={file.name}
                     className="preview-pdf"
+                    sandbox="allow-scripts"
                 />
             );
         }

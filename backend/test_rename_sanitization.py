@@ -53,11 +53,18 @@ class DummyResult:
         # For non-folder files there are no descendants.
         return []
 
+    def first(self):
+        if self.value is not None:
+            return (self.value, getattr(self.value, "owner_username", "alice"))
+        return None
+
 
 def make_file(name: str, file_type: str = "file") -> SimpleNamespace:
     now = datetime.now(timezone.utc)
     return SimpleNamespace(
         id="file-1",
+        owner_id="user-1",
+        owner_username="alice",
         name=name,
         type=file_type,
         mime_type="text/plain" if file_type != "folder" else None,
@@ -122,7 +129,7 @@ class RenameSanitizationTests(unittest.IsolatedAsyncioTestCase):
     async def test_file_rename_accepts_valid_name(self):
         file_obj = make_file("old.txt")
         db = make_db(file_obj)
-        current_user = SimpleNamespace(id="user-1")
+        current_user = SimpleNamespace(id="user-1", username="alice")
 
         response = await update_file(
             request=make_request(),
@@ -142,7 +149,7 @@ class RenameSanitizationTests(unittest.IsolatedAsyncioTestCase):
     async def test_rename_rejects_invalid_names_without_mutating_file(self):
         file_obj = make_file("keep.txt")
         db = make_db(file_obj)
-        current_user = SimpleNamespace(id="user-1")
+        current_user = SimpleNamespace(id="user-1", username="alice")
 
         with self.assertRaises(HTTPException) as ctx:
             await update_file(
@@ -161,7 +168,7 @@ class RenameSanitizationTests(unittest.IsolatedAsyncioTestCase):
     async def test_file_rename_rejects_slash_in_name(self):
         file_obj = make_file("old.txt")
         db = make_db(file_obj)
-        current_user = SimpleNamespace(id="user-1")
+        current_user = SimpleNamespace(id="user-1", username="alice")
 
         with self.assertRaises(HTTPException) as ctx:
             await update_file(
@@ -178,7 +185,7 @@ class RenameSanitizationTests(unittest.IsolatedAsyncioTestCase):
     async def test_folder_rename_rejects_control_characters(self):
         folder = make_file("Quarterly", file_type="folder")
         db = make_db(folder)
-        current_user = SimpleNamespace(id="user-1")
+        current_user = SimpleNamespace(id="user-1", username="alice")
 
         with self.assertRaises(HTTPException) as ctx:
             await update_file(
@@ -195,7 +202,7 @@ class RenameSanitizationTests(unittest.IsolatedAsyncioTestCase):
     async def test_folder_rename_valid_name(self):
         folder = make_file("Quarterly", file_type="folder")
         db = make_db(folder)
-        current_user = SimpleNamespace(id="user-1")
+        current_user = SimpleNamespace(id="user-1", username="alice")
 
         response = await update_file(
             request=make_request(),
@@ -220,7 +227,7 @@ class RenameSanitizationTests(unittest.IsolatedAsyncioTestCase):
         grandchild.path = '["OldName","sub"]'
 
         db = make_db(folder, children=[child, grandchild])
-        current_user = SimpleNamespace(id="user-1")
+        current_user = SimpleNamespace(id="user-1", username="alice")
 
         await update_file(
             request=make_request(),

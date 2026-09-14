@@ -15,9 +15,18 @@ class Settings(BaseSettings):
     @field_validator('secret_key')
     @classmethod
     def validate_secret_key(cls, v):
-        """Block insecure placeholder keys at startup"""
-        blocked = ['dev-secret', 'change-in-production', 'your-secret', 'super-secret', 'example', 'changeme', 'change_me', 'placeholder']
+        """Block insecure placeholder keys and low-entropy keys at startup"""
+        blocked = [
+            'dev-secret', 'change-in-production', 'your-secret', 'super-secret',
+            'example', 'changeme', 'change_me', 'change_this', 'change-this',
+            'change_to', 'placeholder', 'hex_string',
+        ]
         v_lower = v.lower()
+        if v == "CHANGE_THIS_TO_A_64_CHARACTER_HEX_STRING":
+            raise ValueError(
+                "SECRET_KEY is still set to the placeholder template. "
+                "Generate a real key in .env with: openssl rand -hex 32"
+            )
         for word in blocked:
             if word in v_lower:
                 raise ValueError(
@@ -28,6 +37,11 @@ class Settings(BaseSettings):
             raise ValueError(
                 "SECRET_KEY must be at least 32 characters. "
                 "Generate one with: openssl rand -hex 32"
+            )
+        if len(set(v)) < 6:
+            raise ValueError(
+                "SECRET_KEY has insufficient entropy. "
+                "Generate a random key with: openssl rand -hex 32"
             )
         return v
     algorithm: str = "HS256"

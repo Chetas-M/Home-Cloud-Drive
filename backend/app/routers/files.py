@@ -108,6 +108,30 @@ def build_content_disposition(disposition: str, filename: str) -> str:
     return f"{normalized_disposition}; filename=\"{ascii_name}\"; filename*=UTF-8''{encoded_name}"
 
 
+async def reserve_storage_quota(db: AsyncSession, user_id: str, bytes_to_add: int) -> bool:
+    """
+    Atomically checks and increments user storage_used if within storage_quota.
+    If storage_quota <= 0, quota is unlimited.
+    Returns True if reservation succeeded, False if quota exceeded.
+    """
+    if bytes_to_add <= 0:
+        return True
+
+    stmt = (
+        sql_update(User)
+        .where(
+            User.id == user_id,
+            or_(
+                User.storage_quota <= 0,
+                (User.storage_used + bytes_to_add) <= User.storage_quota,
+            ),
+        )
+        .values(storage_used=User.storage_used + bytes_to_add)
+    )
+    result = await db.execute(stmt)
+    return (result.rowcount or 0) > 0
+
+
 def get_file_type(filename: str, mime_type: str = None) -> str:
     """Determine file type from filename and mime type"""
     ext = filename.lower().split('.')[-1] if '.' in filename else ''
@@ -629,12 +653,14 @@ async def upload_files(
                 os.remove(storage_filepath)
             raise HTTPException(status_code=500, detail=f"Failed to save file: {e}")
         
-        # Check storage quota after writing
-        if target_owner.storage_quota > 0 and target_owner.storage_used + file_size > target_owner.storage_quota:
-            os.remove(storage_filepath)
+        # Check and atomically reserve storage quota after writing
+        reserved = await reserve_storage_quota(db, target_owner.id, file_size)
+        if not reserved:
+            if os.path.exists(storage_filepath):
+                os.remove(storage_filepath)
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Storage quota exceeded. Available: {target_owner.storage_quota - target_owner.storage_used} bytes"
+                detail="Storage quota exceeded",
             )
         
         # Get mime type
@@ -682,8 +708,7 @@ async def upload_files(
             created_by=current_user.id,
         ))
         
-        # Update user storage
-        target_owner.storage_used += file_size
+        # Storage quota reserved atomically above
         
         # Log activity
         activity = ActivityLog(
@@ -1000,12 +1025,14 @@ async def complete_chunked_upload(
             detail=f"File exceeds maximum allowed size of {settings.max_file_size_bytes} bytes."
         )
 
-    # Re-check storage quota (just in case it changed during upload)
-    if target_owner.storage_quota > 0 and target_owner.storage_used + assembled_size > target_owner.storage_quota:
-        os.remove(final_storage_filepath)
+    # Re-check and atomically reserve storage quota
+    reserved = await reserve_storage_quota(db, target_owner.id, assembled_size)
+    if not reserved:
+        if os.path.exists(final_storage_filepath):
+            os.remove(final_storage_filepath)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Storage quota exceeded."
+            detail="Storage quota exceeded",
         )
 
     # Guess mime type if not provided
@@ -1042,7 +1069,7 @@ async def complete_chunked_upload(
         created_at=now,
         created_by=current_user.id,
     ))
-    target_owner.storage_used += assembled_size
+    # Storage quota reserved atomically above
     
     activity = ActivityLog(
         user_id=current_user.id,
@@ -1225,11 +1252,13 @@ async def upload_new_version(
             os.remove(storage_filepath)
         raise HTTPException(status_code=500, detail=f"Failed to save version: {exc}")
 
-    if owner_user.storage_quota > 0 and owner_user.storage_used + file_size > owner_user.storage_quota:
-        os.remove(storage_filepath)
+    reserved = await reserve_storage_quota(db, owner_user.id, file_size)
+    if not reserved:
+        if os.path.exists(storage_filepath):
+            os.remove(storage_filepath)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Storage quota exceeded. Available: {owner_user.storage_quota - owner_user.storage_used} bytes"
+            detail="Storage quota exceeded",
         )
 
     mime_type = new_file.content_type or mimetypes.guess_type(safe_filename)[0] or file.mime_type
@@ -1280,7 +1309,7 @@ async def upload_new_version(
             file.version = next_version
             file.storage_path = storage_filepath
 
-    owner_user.storage_used += file_size
+    # Storage quota reserved atomically above
 
     activity = ActivityLog(
         user_id=current_user.id,
@@ -1385,10 +1414,11 @@ async def restore_file_version(
     owner_user = current_user if access_ctx.is_owner else await db.get(User, file.owner_id)
     if owner_user is None:
         raise HTTPException(status_code=404, detail="File owner not found")
-    if owner_user.storage_quota > 0 and owner_user.storage_used + version.size > owner_user.storage_quota:
+    reserved = await reserve_storage_quota(db, owner_user.id, version.size)
+    if not reserved:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Storage quota exceeded."
+            detail="Storage quota exceeded",
         )
 
     user_storage_path = os.path.join(settings.storage_path, file.owner_id)
@@ -1455,7 +1485,7 @@ async def restore_file_version(
     # Build the content index once using the final storage path (after any retries).
     file.content_index = build_search_document(new_storage_path, file.name, version.mime_type, file.type)
 
-    owner_user.storage_used += version.size
+    # Storage quota reserved atomically above
     activity = ActivityLog(
         user_id=current_user.id,
         action="version_restore",
@@ -1536,11 +1566,12 @@ async def copy_file(
     if not original.storage_path or not os.path.exists(original.storage_path):
         raise HTTPException(status_code=404, detail="File not found on disk")
 
-    # Check storage quota
-    if current_user.storage_quota > 0 and current_user.storage_used + original.size > current_user.storage_quota:
+    # Check and atomically reserve storage quota
+    reserved = await reserve_storage_quota(db, current_user.id, original.size)
+    if not reserved:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Storage quota exceeded. Available: {current_user.storage_quota - current_user.storage_used} bytes"
+            detail="Storage quota exceeded",
         )
 
     # Generate new file ID and storage path
@@ -1600,7 +1631,7 @@ async def copy_file(
         created_at=now,
         created_by=current_user.id,
     ))
-    current_user.storage_used += original.size
+    # Storage quota reserved atomically above
 
     # Log activity
     activity = ActivityLog(
@@ -1825,6 +1856,11 @@ async def delete_file_permanently(
 ):
     """Permanently delete a file or folder (recursive for folders)"""
     file, access_ctx = await get_file_access_context(db, current_user, file_id, required_role="admin", allow_trashed=True)
+    if not access_ctx.is_owner:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the file owner can permanently delete files",
+        )
     
     freed_bytes = 0
 
@@ -1863,6 +1899,13 @@ async def preview_file(
 ):
     """Serve file content inline for preview. Authenticated via Authorization header."""
     file, _access_ctx = await get_file_access_context(db, current_user, file_id, required_role="viewer")
+
+    ext = os.path.splitext(file.name.lower())[1].lstrip(".")
+    if ext in {"html", "htm", "xhtml", "xml", "shtml"}:
+        raise HTTPException(
+            status_code=400,
+            detail="HTML and XML files cannot be previewed inline for security. Please download the file.",
+        )
 
     if file.type not in PREVIEWABLE_TYPES:
         raise HTTPException(status_code=400, detail="This file type cannot be previewed")
@@ -1924,6 +1967,8 @@ async def preview_file(
                 "Accept-Ranges": "bytes",
                 "Content-Disposition": build_content_disposition("inline", file.name),
                 "Cache-Control": "private, max-age=3600",
+                "X-Content-Type-Options": "nosniff",
+                "Content-Security-Policy": "default-src 'none'; sandbox",
             }
         )
 
@@ -1944,6 +1989,8 @@ async def preview_file(
             "Accept-Ranges": "bytes",
             "Content-Disposition": build_content_disposition("inline", file.name),
             "Cache-Control": "private, max-age=3600",
+            "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": "default-src 'none'; sandbox",
         }
     )
 

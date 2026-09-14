@@ -14,7 +14,13 @@ from app.database import get_db
 from app.limiter import limiter
 from app.models import User, File as FileModel, ActivityLog
 from app.schemas import AdminUserResponse, AdminUserUpdate, SystemStats, AdminPasswordReset
-from app.auth import get_admin_user, get_password_hash, revoke_user_sessions
+from app.auth import (
+    get_admin_user,
+    get_password_hash,
+    revoke_user_sessions,
+    get_user_by_email,
+    get_user_by_username,
+)
 from app.config import get_settings
 
 settings = get_settings()
@@ -117,9 +123,22 @@ async def update_user(
         user.storage_quota = update.storage_quota
     if update.is_admin is not None:
         user.is_admin = update.is_admin
-    if update.username is not None:
+    if update.username is not None and update.username != user.username:
+        existing_user = await get_user_by_username(db, update.username)
+        if existing_user and existing_user.id != user.id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Username already taken",
+            )
         user.username = update.username
-    if update.email is not None:
+
+    if update.email is not None and update.email != user.email:
+        existing_user = await get_user_by_email(db, update.email)
+        if existing_user and existing_user.id != user.id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email already registered",
+            )
         user.email = update.email
 
     await db.flush()

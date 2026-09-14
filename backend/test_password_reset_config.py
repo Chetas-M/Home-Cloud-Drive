@@ -6,6 +6,7 @@ from app.config import Settings
 class PasswordResetConfigTests(unittest.TestCase):
     def test_password_reset_disabled_without_resend_api_key(self):
         settings = Settings(
+            _env_file=None,
             secret_key="0123456789abcdef0123456789abcdef",
             resend_from_email="no-reply@example.com",
         )
@@ -15,8 +16,10 @@ class PasswordResetConfigTests(unittest.TestCase):
 
     def test_password_reset_disabled_without_resend_sender_email(self):
         settings = Settings(
+            _env_file=None,
             secret_key="0123456789abcdef0123456789abcdef",
             resend_api_key="re_test_123",
+            resend_from_email=None,
         )
 
         self.assertFalse(settings.password_reset_enabled)
@@ -24,6 +27,7 @@ class PasswordResetConfigTests(unittest.TestCase):
 
     def test_password_reset_enabled_with_valid_resend_configuration(self):
         settings = Settings(
+            _env_file=None,
             secret_key="0123456789abcdef0123456789abcdef",
             resend_api_key="re_test_123",
             resend_from_email="no-reply@example.com",
