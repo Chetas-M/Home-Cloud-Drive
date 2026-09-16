@@ -325,7 +325,17 @@ export default function App() {
 
     /* ---------------- FOLDER UPLOAD ---------------- */
     const handleFolderUpload = async (fileList) => {
-        const filesArray = Array.from(fileList).filter(f => f.size > 0 || f.name);
+        const filesArray = Array.from(fileList).filter(f => f.size > 0 || f.name).filter(file => {
+            const relPath = file.webkitRelativePath || file.name;
+            const parts = relPath.split('/');
+            for (let i = 0; i < parts.length - 1; i++) {
+                const folderName = parts[i];
+                if (folderName.startsWith('.') || folderName.endsWith('.') || folderName.trim() !== folderName) {
+                    return false;
+                }
+            }
+            return true;
+        });
         if (filesArray.length === 0) return;
 
         const folderSet = new Set();
