@@ -5,10 +5,7 @@
 
 // Use relative URL in production (nginx proxies /api to backend)
 // In development, this can be overridden
-const LOCAL_API_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
-const API_BASE_URL = LOCAL_API_HOSTS.has(window.location.hostname)
-    ? 'http://localhost:8000/api'
-    : '/api';
+const API_BASE_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:8000/api' : '/api');
 const RESUMABLE_UPLOAD_KEY = 'hcd.resumableUploads';
 
 function loadResumableSessions() {
@@ -29,6 +26,15 @@ function persistResumableSessions(sessions) {
 
 function buildUploadFingerprint(file, path) {
     return `${file.name}|${file.size}|${file.lastModified || 0}|${JSON.stringify(path)}`;
+}
+
+class RateLimitError extends Error {
+    constructor(retryAfterSeconds = 60) {
+        super('Too many attempts. Please try again later.');
+        this.name = 'RateLimitError';
+        this.retryAfterSeconds = retryAfterSeconds;
+        this.isRateLimit = true;
+    }
 }
 
 class ApiService {
@@ -76,7 +82,11 @@ class ApiService {
         }
 
         if (response.status === 429) {
-            throw new Error('Too many attempts. Please try again later.');
+            let retryAfter = parseInt(response.headers.get('Retry-After'), 10);
+            if (isNaN(retryAfter) || retryAfter <= 0) {
+                retryAfter = 10; // default 10 seconds if parsing fails
+            }
+            throw new RateLimitError(retryAfter);
         }
 
         if (!response.ok) {
@@ -438,7 +448,13 @@ class ApiService {
 
                                 xhr.onload = () => {
                                     currentXhr = null;
-                                    if (xhr.status >= 200 && xhr.status < 300) {
+                                    if (xhr.status === 429) {
+                                        let retryAfter = parseInt(xhr.getResponseHeader('Retry-After'), 10);
+                                        if (isNaN(retryAfter) || retryAfter <= 0) {
+                                            retryAfter = 10;
+                                        }
+                                        chunkReject(new RateLimitError(retryAfter));
+                                    } else if (xhr.status >= 200 && xhr.status < 300) {
                                         chunkResolve();
                                     } else {
                                         chunkReject(new Error(`Chunk upload failed: ${xhr.status}`));
@@ -474,6 +490,7 @@ class ApiService {
                                 : 0;
                             emitProgress(loadedBytes, avgSpeed);
                         } catch (err) {
+                            if (err.isRateLimit) throw err;
                             if (err.message === 'Upload cancelled') throw err;
                             retries++;
                             if (retries >= maxRetries) {

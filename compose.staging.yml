@@ -29,7 +29,6 @@ services:
       - RESEND_API_URL=${RESEND_API_URL:-https://api.resend.com/emails}
       - RESEND_TIMEOUT_SECONDS=${RESEND_TIMEOUT_SECONDS:-15}
       - PASSWORD_RESET_URL=${PASSWORD_RESET_URL:-}
-    user: "1000:1000"
     read_only: false
     deploy:
       resources:
@@ -55,7 +54,7 @@ services:
     expose:
       - "80"
     ports:
-      - "100.126.2.116:3002:80"
+      - "3002:80"
     depends_on:
       backend:
         condition: service_healthy
@@ -75,23 +74,12 @@ services:
 
 volumes:
   homecloud_stage_storage:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ${STORAGE_PATH:-/mnt/homecloud-staging/storage}
-
   homecloud_stage_data:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ${DATA_PATH:-/mnt/homecloud-staging/data}
 
 networks:
   homecloud_staging_internal:
     driver: bridge
-    internal: true
+    internal: false
     ipam:
       config:
         - subnet: 172.30.0.0/24

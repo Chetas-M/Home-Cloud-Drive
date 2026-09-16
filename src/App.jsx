@@ -22,6 +22,7 @@ import SecurityModal from "./components/SecurityModal";
 import VersionHistoryModal from "./components/VersionHistoryModal";
 import BulkActionBar from "./components/BulkActionBar";
 import api from "./api";
+import { TaskScheduler } from "./TaskScheduler";
 
 export default function App() {
     // Auth state
@@ -243,7 +244,6 @@ export default function App() {
         const filesArray = Array.from(fileList);
         const totalFiles = filesArray.length;
 
-        // Initialize progress for all files
         const initialProgress = {};
         filesArray.forEach((file, i) => {
             initialProgress[i] = {
@@ -254,75 +254,71 @@ export default function App() {
                 percent: 0,
                 speed: 0,
                 eta: 0,
-                status: 'waiting', // waiting | uploading | done | error
+                status: 'waiting',
                 fileIndex: i + 1,
                 totalFiles,
             };
         });
         setUploadProgress(initialProgress);
 
+        const scheduler = new TaskScheduler(4);
+        const activeAborts = new Set();
+        
+        uploadAbortRef.current = () => {
+            scheduler.cancelAll();
+            activeAborts.forEach(abort => abort());
+            activeAborts.clear();
+        };
+
         try {
-            // Upload files sequentially for accurate per-file progress
-            for (let i = 0; i < filesArray.length; i++) {
-                const file = filesArray[i];
+            const promises = filesArray.map((file, i) => {
+                return scheduler.enqueue(async () => {
+                    setUploadProgress(p => ({ ...p, [i]: { ...p[i], status: 'uploading' } }));
+                    
+                    const { promise, abort } = api.uploadFileWithProgress(
+                        file,
+                        currentPath,
+                        (progress) => {
+                            setUploadProgress(p => ({
+                                ...p,
+                                [i]: {
+                                    ...p[i],
+                                    loaded: progress.loaded,
+                                    total: progress.total,
+                                    percent: progress.percent,
+                                    speed: progress.speed,
+                                    eta: progress.eta,
+                                    status: 'uploading',
+                                },
+                            }));
+                        },
+                        { sharedFolderId: currentSharedFolder?.shared_folder_id || currentSharedFolder?.id }
+                    );
 
-                // Mark as uploading
-                setUploadProgress(p => ({
-                    ...p,
-                    [i]: { ...p[i], status: 'uploading' },
-                }));
+                    activeAborts.add(abort);
+                    try {
+                        await promise;
+                        setUploadProgress(p => ({ ...p, [i]: { ...p[i], percent: 100, status: 'done', speed: 0, eta: 0 } }));
+                    } finally {
+                        activeAborts.delete(abort);
+                    }
+                }, { 
+                    retryCount: 5, 
+                    onRetry: () => setUploadProgress(p => ({ ...p, [i]: { ...p[i], status: 'waiting' } })) 
+                }).catch(err => {
+                    if (err.message === 'Upload cancelled') return;
+                    console.error('File upload failed:', err);
+                    setUploadProgress(p => ({ ...p, [i]: { ...p[i], status: 'error' } }));
+                });
+            });
 
-                const { promise, abort } = api.uploadFileWithProgress(
-                    file,
-                    currentPath,
-                    (progress) => {
-                        setUploadProgress(p => ({
-                            ...p,
-                            [i]: {
-                                ...p[i],
-                                loaded: progress.loaded,
-                                total: progress.total,
-                                percent: progress.percent,
-                                speed: progress.speed,
-                                eta: progress.eta,
-                                status: 'uploading',
-                            },
-                        }));
-                    },
-                    { sharedFolderId: currentSharedFolder?.shared_folder_id || currentSharedFolder?.id }
-                );
+            await Promise.all(promises);
 
-                uploadAbortRef.current = abort;
-                await promise;
-
-                // Mark as done
-                setUploadProgress(p => ({
-                    ...p,
-                    [i]: { ...p[i], percent: 100, status: 'done', speed: 0, eta: 0 },
-                }));
-            }
-
-            // Clear progress after brief delay
             setTimeout(() => setUploadProgress({}), 1500);
             setSearchRefreshKey((key) => key + 1);
             loadFiles();
         } catch (err) {
-            if (err.message === 'Upload cancelled') {
-                setUploadProgress({});
-            } else {
-                console.error("Upload failed:", err);
-                // Mark failed uploads
-                setUploadProgress(p => {
-                    const updated = { ...p };
-                    Object.keys(updated).forEach(key => {
-                        if (updated[key].status === 'uploading' || updated[key].status === 'waiting') {
-                            updated[key].status = 'error';
-                        }
-                    });
-                    return updated;
-                });
-                setTimeout(() => setUploadProgress({}), 3000);
-            }
+            console.error("Upload process error:", err);
         }
         uploadAbortRef.current = null;
     };
@@ -332,44 +328,35 @@ export default function App() {
         const filesArray = Array.from(fileList).filter(f => f.size > 0 || f.name);
         if (filesArray.length === 0) return;
 
-        // Collect unique intermediate folder paths from webkitRelativePath
-        // e.g. "myFolder/sub/file.txt" -> folders: ["myFolder", "myFolder/sub"]
         const folderSet = new Set();
         filesArray.forEach(file => {
             const relPath = file.webkitRelativePath || file.name;
             const parts = relPath.split('/');
-            // All but the last part are folder segments
             for (let i = 1; i < parts.length; i++) {
                 folderSet.add(parts.slice(0, i).join('/'));
             }
         });
 
-        // Sort folders by depth so parents are created first
         const foldersToCreate = Array.from(folderSet).sort(
             (a, b) => a.split('/').length - b.split('/').length
         );
 
-        // Create folders
-        const createdFolders = new Set();
-        for (const folderPath of foldersToCreate) {
-            const parts = folderPath.split('/');
-            const folderName = parts[parts.length - 1];
-            // Parent path = currentPath + all parts except the last
-            const parentPath = [...currentPath, ...parts.slice(0, -1)];
-            try {
-                await api.createFolder(folderName, parentPath, {
-                    sharedFolderId: currentSharedFolder?.shared_folder_id || currentSharedFolder?.id,
-                });
-                createdFolders.add(folderPath);
-            } catch (err) {
-                // Folder may already exist — that's OK
-                if (!err.message?.includes('already exists')) {
-                    console.error(`Failed to create folder ${folderPath}:`, err);
-                }
-            }
-        }
+        const foldersByDepth = [];
+        foldersToCreate.forEach(folderPath => {
+            const depth = folderPath.split('/').length;
+            if (!foldersByDepth[depth]) foldersByDepth[depth] = [];
+            foldersByDepth[depth].push(folderPath);
+        });
 
-        // Now upload each file with the correct sub-path
+        const scheduler = new TaskScheduler(4);
+        const activeAborts = new Set();
+        
+        uploadAbortRef.current = () => {
+            scheduler.cancelAll();
+            activeAborts.forEach(abort => abort());
+            activeAborts.clear();
+        };
+
         const totalFiles = filesArray.length;
         const initialProgress = {};
         filesArray.forEach((file, i) => {
@@ -389,46 +376,78 @@ export default function App() {
         setUploadProgress(initialProgress);
 
         try {
-            for (let i = 0; i < filesArray.length; i++) {
-                const file = filesArray[i];
-                const relPath = file.webkitRelativePath || file.name;
-                const parts = relPath.split('/');
-                // The file's target path = currentPath + all folder segments
-                const filePath = [...currentPath, ...parts.slice(0, -1)];
-
-                setUploadProgress(p => ({
-                    ...p,
-                    [i]: { ...p[i], status: 'uploading' },
-                }));
-
-                const { promise, abort } = api.uploadFileWithProgress(
-                    file,
-                    filePath,
-                    (progress) => {
-                        setUploadProgress(p => ({
-                            ...p,
-                            [i]: {
-                                ...p[i],
-                                loaded: progress.loaded,
-                                total: progress.total,
-                                percent: progress.percent,
-                                speed: progress.speed,
-                                eta: progress.eta,
-                                status: 'uploading',
-                            },
-                        }));
-                    },
-                    { sharedFolderId: currentSharedFolder?.shared_folder_id || currentSharedFolder?.id }
-                );
-
-                uploadAbortRef.current = abort;
-                await promise;
-
-                setUploadProgress(p => ({
-                    ...p,
-                    [i]: { ...p[i], percent: 100, status: 'done', speed: 0, eta: 0 },
-                }));
+            // Depth-batched folder creation
+            for (let depth = 0; depth < foldersByDepth.length; depth++) {
+                if (!foldersByDepth[depth]) continue;
+                
+                const promises = foldersByDepth[depth].map(folderPath => {
+                    return scheduler.enqueue(async () => {
+                        const parts = folderPath.split('/');
+                        const folderName = parts[parts.length - 1];
+                        const parentPath = [...currentPath, ...parts.slice(0, -1)];
+                        try {
+                            await api.createFolder(folderName, parentPath, {
+                                sharedFolderId: currentSharedFolder?.shared_folder_id || currentSharedFolder?.id,
+                            });
+                        } catch (err) {
+                            if (!err?.message?.includes('already exists')) {
+                                throw err;
+                            }
+                        }
+                    }, { retryCount: 5 }).catch(err => {
+                        if (err.message === 'Upload cancelled') return;
+                        console.error(`Folder creation failed for ${folderPath}:`, err);
+                    });
+                });
+                await Promise.all(promises);
             }
+
+            // File uploads
+            const filePromises = filesArray.map((file, i) => {
+                return scheduler.enqueue(async () => {
+                    setUploadProgress(p => ({ ...p, [i]: { ...p[i], status: 'uploading' } }));
+                    const relPath = file.webkitRelativePath || file.name;
+                    const parts = relPath.split('/');
+                    const filePath = [...currentPath, ...parts.slice(0, -1)];
+
+                    const { promise, abort } = api.uploadFileWithProgress(
+                        file,
+                        filePath,
+                        (progress) => {
+                            setUploadProgress(p => ({
+                                ...p,
+                                [i]: {
+                                    ...p[i],
+                                    loaded: progress.loaded,
+                                    total: progress.total,
+                                    percent: progress.percent,
+                                    speed: progress.speed,
+                                    eta: progress.eta,
+                                    status: 'uploading',
+                                },
+                            }));
+                        },
+                        { sharedFolderId: currentSharedFolder?.shared_folder_id || currentSharedFolder?.id }
+                    );
+                    
+                    activeAborts.add(abort);
+                    try {
+                        await promise;
+                        setUploadProgress(p => ({ ...p, [i]: { ...p[i], percent: 100, status: 'done', speed: 0, eta: 0 } }));
+                    } finally {
+                        activeAborts.delete(abort);
+                    }
+                }, { 
+                    retryCount: 5, 
+                    onRetry: () => setUploadProgress(p => ({ ...p, [i]: { ...p[i], status: 'waiting' } })) 
+                }).catch(err => {
+                    if (err.message === 'Upload cancelled') return;
+                    console.error('File upload failed:', err);
+                    setUploadProgress(p => ({ ...p, [i]: { ...p[i], status: 'error' } }));
+                });
+            });
+
+            await Promise.all(filePromises);
 
             setTimeout(() => setUploadProgress({}), 1500);
             setSearchRefreshKey((key) => key + 1);

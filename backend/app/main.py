@@ -359,6 +359,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["Retry-After"],
 )
 
 # Rate limiting
@@ -368,6 +369,13 @@ from slowapi.middleware import SlowAPIMiddleware
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
+
+@app.middleware("http")
+async def add_retry_after_header(request: Request, call_next):
+    response = await call_next(request)
+    if response.status_code == 429 and "Retry-After" not in response.headers:
+        response.headers["Retry-After"] = "60"
+    return response
 
 # Import additional routers
 from app.routers import admin, sharing, shared_folders
