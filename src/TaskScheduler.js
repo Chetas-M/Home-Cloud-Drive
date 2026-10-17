@@ -31,10 +31,14 @@ export class TaskScheduler {
 
     cancelAll() {
         this.isCancelled = true;
+        const remaining = this.queue;
         this.queue = [];
         if (this.timerId) {
             clearTimeout(this.timerId);
             this.timerId = null;
+        }
+        for (const task of remaining) {
+            task.reject(new Error('Upload cancelled'));
         }
     }
 
