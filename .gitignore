@@ -33,10 +33,27 @@ npm-debug.log*
 # Docker / runtime data
 caddy_data/
 caddy_config/
+data/
 storage/
 backend/storage/
 backend/data/
+staging_data/
+staging_storage/
 
 # Coverage
 htmlcov/
 .coverage
+
+# Scratch & test data
+*_dataset/
+dataset_ground_truth.json
+*.txt
+e2e_*.py
+rigorous_*.py
+generate_*.py
+analyze_*.py
+validate_*.py
+check_*.py
+clean_*.py
+test_db.py
+
